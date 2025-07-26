@@ -1,0 +1,82 @@
+{
+  "columns": {
+    "full_mask_col": "full_mask",
+    "email_col": "mask_email",
+    "phone_col": "mask_number",
+    "static_value_col": {
+      "method": "replace_with_value",
+      "params": {
+        "value": "CONFIDENCIAL"
+      }
+    },
+    "contains_replace_col": {
+      "method": "replace_by_contains",
+      "params": {
+        "mapping": {
+          "secret": "public",
+          "admin": "user"
+        }
+      }
+    },
+    "dict_replace_col": {
+      "method": "replace_by_dict",
+      "params": {
+        "mapping": {
+          "A": "X",
+          "B": "Y"
+        }
+      }
+    },
+    "numeric_seq_col": {
+      "method": "sequential_numeric",
+      "params": {
+        "prefix": "ID"
+      }
+    },
+    "alpha_seq_col": {
+      "method": "sequential_alpha",
+      "params": {
+        "prefix": "REF"
+      }
+    },
+    "truncate_col": {
+      "method": "truncate",
+      "params": {
+        "length": 4
+      }
+    },
+    "initials_col": "initials_only",
+    "age_col": "generalize_age",
+    "birth_col": {
+      "method": "generalize_date",
+      "params": {
+        "mode": "month_year"
+      }
+    },
+    "state_col": {
+      "method": "random_choice",
+      "params": {
+        "choices": [
+          "SP",
+          "RJ",
+          "MG"
+        ]
+      }
+    },
+    "cpf_col": {
+      "method": "replace_with_fake",
+      "params": {
+        "digits": 11
+      }
+    },
+    "feedback_col": "shuffle",
+    "access_date_col": {
+      "method": "date_offset",
+      "params": {
+        "min_days": -2,
+        "max_days": 2
+      }
+    },
+    "drop_col": "drop"
+  }
+}

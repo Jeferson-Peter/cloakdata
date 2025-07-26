@@ -1,0 +1,8 @@
+[project]
+name = "data-anonymizer-script"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "polars>=1.31.0",
+]
