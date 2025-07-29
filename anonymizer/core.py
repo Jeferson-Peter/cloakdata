@@ -697,9 +697,3 @@ class AnonymizationMethods:
             for name, method in inspect.getmembers(cls, predicate=inspect.isfunction)
             if not name.startswith("_") and name not in {"apply_conditioned_expr", "anonymize", "build_dispatch_map"}
         }
-
-
-if __name__ == '__main__':
-
-    am = AnonymizationMethods().build_dispatch_map()
-    print()
