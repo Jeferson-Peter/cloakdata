@@ -1,4 +1,0 @@
-full_mask_col,email_col,phone_col,static_value_col,contains_replace_col,dict_replace_col,numeric_seq_col,alpha_seq_col,truncate_col,initials_col,age_col,birth_col,state_col,cpf_col,feedback_col,access_date_col,drop_col
-anything,user1@email.com,11999999999,X,admin,A,abc,u1,abcdefgh,Maria da Silva,25,1980-05-10,XX,12345678900,ótimo,2023-12-01,will
-goes,admin@test.com,21988887777,Y,secret,B,def,u2,ijklmnop,João Pedro,32,1992-11-21,YY,98765432100,bom,2023-12-02,be
-here,foo@bar.com,31977776666,Z,none,C,ghi,u3,qrstuvwx,Ana Lúcia,47,2001-01-01,ZZ,11122233344,regular,2023-12-03,dropped

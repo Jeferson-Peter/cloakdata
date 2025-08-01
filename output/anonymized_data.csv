@@ -1,4 +1,0 @@
-full_mask_col,email_col,phone_col,static_value_col,contains_replace_col,dict_replace_col,numeric_seq_col,alpha_seq_col,truncate_col,initials_col,age_col,birth_col,state_col,cpf_col,feedback_col,access_date_col,drop_col
-*****,xxxxx@email.com,119*****,CONFIDENCIAL,user,A,ID 2,REF B,abcd,M.D.S.,20-29,1980-05,MG,56744157071,regular,2023-12-02,will
-*****,xxxxx@test.com,219*****,CONFIDENCIAL,public,B,ID 1,REF C,ijkl,J.P.,30-39,1992-11,RJ,92967269593,bom,2023-12-01,be
-*****,xxxxx@bar.com,319*****,CONFIDENCIAL,none,C,ID 3,REF A,qrst,A.L.,40-49,2001-01,SP,28036818165,ótimo,2023-12-03,dropped
