@@ -1,9 +1,20 @@
 [project]
-name = "data-anonymizer-script"
-version = "0.1.0"
-description = "Add your description here"
+name = "cloakdata"
+version = "1.0.0"
+description = "A lightweight library for anonymizing tabular datasets using Polars"
+keywords = ["anonymization", "data privacy", "polars", "etl", "data masking"]
+authors = [
+    { name = "Jeferson Peter", url = "https://github.com/Jeferson-Peter/data-anonymizer-script" }
+]
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "loguru>=0.7.3",
     "polars>=1.31.0",
+    "loguru>=0.7.3"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
