@@ -4,7 +4,8 @@ import time
 from datetime import timedelta
 from loguru import logger
 from pathlib import Path
-from anonymizer.core import AnonymizationMethods
+from src.cloakdata.core import AnonymizationMethods
+from src.cloakdata.validate import validate_config
 
 
 def format_duration(ms: float) -> str:
@@ -95,6 +96,8 @@ def main():
     logger.info(f"⚙️  Loading anonymization config from: {config_path}")
     with open(config_path) as f:
         config = json.load(f)
+
+    validate_config(config, AnonymizationMethods.build_dispatch_map())
 
     logger.info("🔐 Applying anonymization rules...")
     start_time = time.perf_counter()
