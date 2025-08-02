@@ -3,7 +3,6 @@ name = "cloakdata"
 version = "1.0.0"
 description = "A lightweight library for anonymizing tabular datasets using Polars"
 keywords = ["anonymization", "data privacy", "polars", "etl", "data masking"]
-homepage = "https://github.com/Jeferson-Peter/data-anonymizer-script"
 authors = [
   { name = "Jeferson Peter" }
 ]
