@@ -1,4 +1,6 @@
 from .core import AnonymizationMethods
-from .validate import validate_config
+from .validate import validate
 
-__all__ = ["AnonymizationMethods", "validate_config"]
+anonymize = AnonymizationMethods.anonymize
+
+__all__ = ["anonymize", "AnonymizationMethods", "validate"]

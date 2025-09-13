@@ -1,10 +1,10 @@
+import inspect
 import random
 import string
-from datetime import datetime, timedelta
+from collections.abc import Callable
+from datetime import datetime
 
 import polars as pl
-import inspect
-
 from loguru import logger
 
 
@@ -51,7 +51,9 @@ class AnonymizationMethods:
             pl.Expr: An expression that masks email addresses while preserving the domain.
         """
         return (
-            pl.when(pl.col(col).str.contains("@"))
+            pl.when(pl.col(col).is_null())
+            .then(pl.lit(None))
+            .when(pl.col(col).str.contains("@"))
             .then(pl.lit("xxxxx@") + pl.col(col).str.split("@").list.get(1))
             .otherwise(pl.lit("xxxxx@hidden.com"))
             .alias(col)
@@ -73,9 +75,7 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that preserves the first 3 characters and masks the rest.
         """
-        return (
-            pl.col(col).cast(pl.Utf8).str.slice(0, 3) + pl.lit("*****")
-        ).alias(col)
+        return (pl.col(col).cast(pl.Utf8).str.slice(0, 3) + pl.lit("*****")).alias(col)
 
     @staticmethod
     def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -86,34 +86,41 @@ class AnonymizationMethods:
             _df (pl.DataFrame): The input DataFrame (not used in this method).
             col (str): The name of the column to be replaced.
             params (dict): Dictionary containing the key "value" with the replacement string.
-                           If not provided, defaults to "Unknow".
+                           If not provided, defaults to "Unknown".
 
         Returns:
             pl.Expr: An expression that replaces all values with the specified static value.
         """
-        return pl.lit(params.get("value", "Unknow")).alias(col)
+        return pl.lit(params.get("value", "Unknown")).alias(col)
 
     @staticmethod
     def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces values in the column based on whether they contain specific substrings.
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to be processed.
-            params (dict): Dictionary with one of the following:
-                - "mapping" (dict): Keys are substrings to look for, values are replacements.
-                - OR "substr" (str) and "replacement" (str): fallback single rule if no mapping is provided.
-
-        Returns:
-            pl.Expr: An expression that replaces values based on substring matching.
+        Replace values in `col` when they CONTAIN given substrings.
+        Uses `pl.fold` to accumulate the transformations.
         """
         mapping = params.get("mapping") or {
-            params.get("substr", ""): params.get("replacement", "Unknow")
+            params.get("substr", ""): params.get("replacement", "Unknown")
         }
-        expr = pl.col(col)
-        for substr, replacement in mapping.items():
-            expr = pl.when(expr.cast(pl.Utf8).str.contains(substr)).then(pl.lit(replacement)).otherwise(expr)
+
+        base = pl.col(col).cast(pl.Utf8)
+
+        pairs = [
+            pl.struct(pl.lit(sub).alias("sub"), pl.lit(rep).alias("rep"))
+            for sub, rep in mapping.items()
+        ]
+
+        # noinspection PyTypeChecker
+        expr = pl.fold(
+            acc=base,
+            function=lambda acc, pair: pl.when(
+                acc.str.contains(pair.struct.field("sub")).fill_null(False)
+            )
+            .then(pair.struct.field("rep"))
+            .otherwise(acc),
+            exprs=pairs,
+        )
+
         return expr.alias(col)
 
     @staticmethod
@@ -130,10 +137,19 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that performs exact value replacements.
         """
-        expr = pl.col(col).cast(pl.Utf8)
-        for old, new in params.get("mapping", {}).items():
-            expr = pl.when(expr == old).then(pl.lit(new)).otherwise(expr)
-        return expr.alias(col)
+        mapping: dict = params.get("mapping", {})
+        if not mapping:
+            return pl.col(col).alias(col)
+
+        return (
+            pl.col(col)
+            .replace_strict(
+                mapping,
+                default=pl.col(col),
+                return_dtype=pl.Utf8,
+            )
+            .alias(col)
+        )
 
     @staticmethod
     def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -152,9 +168,15 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression replacing values with numeric pseudonyms.
         """
-        unique_vals = df.select(pl.col(col).unique()).to_series().to_list()
-        mapping = {val: f"{params.get("prefix", "val")} {i + 1}" for i, val in enumerate(unique_vals)}
-        return pl.col(col).replace(mapping).alias(col)
+        params = params or {}
+        start = int(params.get("start", 1))
+        prefix = params.get("prefix")
+        seq = pl.arange(pl.lit(start), pl.len() + start)
+
+        if not prefix:
+            return seq.alias(col)
+        else:
+            return pl.format(f"{prefix} {{}}", seq).alias(col)
 
     @staticmethod
     def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -171,18 +193,43 @@ class AnonymizationMethods:
                 - "prefix" (str): A prefix to add to the generated values (default: "val").
 
         Returns:
-            pl.Expr: An expression replacing values with alphabetic pseudonyms (A, B, ..., Z, AA, AB, ...).
+            pl.Expr: An expression replacing values with alphabetic pseudonyms
+            (A, B, ..., Z, AA, AB, ...).
         """
-        def num_to_alpha(n: int) -> str:
-            result = ""
-            while n >= 0:
-                result = chr(65 + (n % 26)) + result
-                n = n // 26 - 1
-            return result
 
-        unique_vals = df.select(pl.col(col).unique()).to_series().to_list()
-        mapping = {val: f"{params.get("prefix", "val")} {num_to_alpha(i)}" for i, val in enumerate(unique_vals)}
-        return pl.col(col).replace(mapping).alias(col)
+        def alpha_to_num(s: str) -> int:
+            s = (s or "A").strip().upper()
+            if not s:
+                return 1
+            n = 0
+            for ch in s:
+                if "A" <= ch <= "Z":
+                    n = n * 26 + (ord(ch) - 64)
+            return max(n, 1)
+
+        def num_to_alpha(n: int) -> str:
+            out = ""
+            while n > 0:
+                n, r = divmod(n - 1, 26)
+                out = chr(65 + r) + out
+            return out
+
+        params = params or {}
+        start_letter = params.get("start", "A")
+        offset = alpha_to_num(start_letter)
+        prefix = params.get("prefix")
+
+        idx = pl.arange(pl.lit(0), pl.len())
+        ordinal = idx + offset
+
+        letters = ordinal.map_elements(
+            lambda k: num_to_alpha(int(k)), return_dtype=pl.Utf8
+        )
+
+        if prefix is None:
+            return letters.alias(col)
+        else:
+            return pl.format(f"{prefix} {{}}", letters).alias(col)
 
     @staticmethod
     def truncate(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -201,7 +248,9 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that truncates each string to the specified length.
         """
-        return pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
+        return (
+            pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
+        )
 
     @staticmethod
     def initials_only(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
@@ -221,7 +270,7 @@ class AnonymizationMethods:
             .cast(pl.Utf8)
             .map_elements(
                 lambda x: "".join([n[0].upper() + "." for n in str(x).split() if n]),
-                return_dtype=pl.Utf8
+                return_dtype=pl.Utf8,
             )
             .alias(col)
         )
@@ -244,10 +293,7 @@ class AnonymizationMethods:
             pl.Expr: An expression that converts numeric ages into age groups.
         """
         base = (pl.col(col).cast(pl.Int64) // 10) * 10
-        return (
-            (base.cast(pl.Utf8) + pl.lit("-") + (base + 9).cast(pl.Utf8))
-            .alias(col)
-        )
+        return (base.cast(pl.Utf8) + pl.lit("-") + (base + 9).cast(pl.Utf8)).alias(col)
 
     @staticmethod
     def generalize_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -275,30 +321,29 @@ class AnonymizationMethods:
     @staticmethod
     def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces each value in the column with a random choice from a predefined list.
-
-        Example:
-            Original: "A", "B", "C"
-            After: "X", "Y", "X" (randomly assigned)
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to anonymize.
-            params (dict): Dictionary containing:
-                - "choices" (list): List of possible values to randomly assign. Defaults to ["X", "Y"].
-
-        Returns:
-            pl.Expr: An expression that replaces values with random selections from the list.
+        Substitui cada valor por uma escolha aleatória dentre `choices`.
+        Se `seed` for fornecido em params, o resultado é determinístico.
+        Preserva None.
         """
+        params = params or {}
         choices = params.get("choices", ["X", "Y"])
+        seed = params.get("seed", None)
+
+        rng = random.Random(seed) if seed is not None else random
+
         return (
             pl.col(col)
-            .map_elements(lambda _: random.choice(choices), return_dtype=pl.Utf8)
+            .map_elements(
+                lambda v: None if v is None else rng.choice(choices),
+                return_dtype=pl.Utf8,
+            )
             .alias(col)
         )
 
     @staticmethod
-    def replace_with_fake(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    def replace_with_random_digits(
+        _df: pl.DataFrame, col: str, params: dict
+    ) -> pl.Expr:
         """
         Replaces each value in the column with a randomly generated fake number (e.g., CPF, ID).
 
@@ -316,13 +361,17 @@ class AnonymizationMethods:
         """
         return (
             pl.col(col)
-            .map_elements(lambda _: "".join(random.choices(string.digits, k=params.get("digits", 11))),
-                          return_dtype=pl.Utf8)
+            .map_elements(
+                lambda _: "".join(
+                    random.choices(string.digits, k=params.get("digits", 11))
+                ),
+                return_dtype=pl.Utf8,
+            )
             .alias(col)
         )
 
     @staticmethod
-    def shuffle(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def shuffle(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
         Randomly shuffles the values in the specified column.
 
@@ -332,12 +381,14 @@ class AnonymizationMethods:
         Parameters:
             _df (pl.DataFrame): The input DataFrame (not used directly).
             col (str): The name of the column to shuffle.
-            _params (dict): Parameters dictionary (not used in this method).
+            params (dict): Parameters dictionary.
 
         Returns:
             pl.Expr: An expression that shuffles the column values.
         """
-        return pl.col(col).shuffle().alias(col)
+        params = params or {}
+        seed = params.get("seed")
+        return pl.col(col).shuffle(seed=seed).alias(col)
 
     @staticmethod
     def date_offset(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -357,39 +408,49 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that offsets dates randomly within the given range.
         """
-        def shift(date_str: str) -> str:
-            try:
-                min_days = params.get("min_days", -3)
-                max_days = params.get("max_days", 3)
-                d = datetime.strptime(date_str, "%Y-%m-%d")
-                offset = timedelta(days=random.randint(min_days, max_days))
-                return (d + offset).strftime("%Y-%m-%d")
-            except:
-                return "invalid"
+        params = params or {}
+        min_days = int(params.get("min_days", 0))
+        max_days = int(params.get("max_days", 0))
+        seed = int(params.get("seed", 0))
+
+        if max_days < min_days:
+            min_days, max_days = max_days, min_days
+
+        span = (max_days - min_days) + 1
+
+        base = pl.col(col).str.strptime(pl.Date, format="%Y-%m-%d", strict=False)
+
+        idx = pl.arange(0, pl.len(), eager=False).cast(pl.UInt64)
+        rnd = idx.hash(seed=seed)
+        offset = (rnd % span).cast(pl.Int64) + min_days
 
         return (
-            pl.col(col)
-            .cast(pl.Utf8)
-            .map_elements(shift, return_dtype=pl.Utf8)
+            pl.when(base.is_not_null())
+            .then((base + pl.duration(days=offset)).dt.strftime("%Y-%m-%d"))
+            .otherwise(pl.lit(None))
             .alias(col)
         )
 
     @staticmethod
     def coalesce_cols(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Returns the first non-null value from a list of columns and assigns it to the target column.
+        Returns the first non-null value from a list of columns and assigns
+        it to the target column.
 
         Example:
-            If column "A" is null, but "B" has a value, it will use "B". Follows the order of the list.
+            If column "A" is null, but "B" has a value, it will use "B". Follows
+            the order of the list.
 
         Parameters:
             _df (pl.DataFrame): The input DataFrame (not used directly).
             col (str): The name of the resulting column.
             params (dict): Dictionary containing:
-                - "columns" (list): List of column names to coalesce (in order of priority).
+                - "columns" (list): List of column names to coalesce
+                 (in order of priority).
 
         Returns:
-            pl.Expr: An expression that returns the first non-null value among the given columns.
+            pl.Expr: An expression that returns the first non-null
+             value among the given columns.
 
         Raises:
             ValueError: If the "columns" parameter is not provided.
@@ -398,33 +459,6 @@ class AnonymizationMethods:
         if not cols:
             raise ValueError("❌ 'columns' param is required for 'coalesce_cols'")
         return pl.coalesce([pl.col(c) for c in cols]).alias(col)
-
-    @staticmethod
-    def split_name_parts(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
-        """
-        Splits a full name string and extracts either the first or last part.
-
-        Example:
-            "John Doe Smith" with part="first" → "John"
-            "John Doe Smith" with part="last" → "Smith"
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing full names.
-            params (dict): Dictionary containing:
-                - "part" (str): Must be either "first" or "last". Defaults to "first".
-
-        Returns:
-            pl.Expr: An expression that extracts the desired part of the name.
-        """
-        part = params.get("part", "first")
-
-        if part == "first":
-            return pl.col(col).cast(pl.Utf8).str.split(" ").list.get(0).alias(col)
-        elif part == "last":
-            return pl.col(col).cast(pl.Utf8).str.split(" ").list.get(-1).alias(col)
-        else:
-            return pl.lit("").alias(col)
 
     @staticmethod
     def generalize_number_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -445,7 +479,9 @@ class AnonymizationMethods:
         """
         interval = params.get("interval", 10)
         base = (pl.col(col).cast(pl.Int64) // interval) * interval
-        return (base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)).alias(col)
+        return (
+            base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)
+        ).alias(col)
 
     @staticmethod
     def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -475,10 +511,13 @@ class AnonymizationMethods:
             .cast(pl.Utf8)
             .map_elements(
                 lambda x: (
-                    x[:visible_start] + mask_char * (len(x) - visible_start - visible_end) + x[-visible_end:]
-                    if len(x) > visible_start + visible_end else x
+                    x[:visible_start]
+                    + mask_char * (len(x) - visible_start - visible_end)
+                    + x[-visible_end:]
+                    if len(x) > visible_start + visible_end
+                    else x
                 ),
-                return_dtype=pl.Utf8
+                return_dtype=pl.Utf8,
             )
             .alias(col)
         )
@@ -516,7 +555,8 @@ class AnonymizationMethods:
             _df (pl.DataFrame): The input DataFrame (not used directly).
             col (str): The name of the column containing date strings in "YYYY-MM-DD" format.
             params (dict): Dictionary containing:
-                - "mode" (str): Rounding mode: "month" or "year" (default: "day", which means no rounding).
+                - "mode" (str): Rounding mode: "month" or "year"
+                 (default: "day", which means no rounding).
 
         Returns:
             pl.Expr: An expression that returns rounded date strings.
@@ -542,65 +582,61 @@ class AnonymizationMethods:
         )
 
     @staticmethod
-    def apply_conditioned_expr(col: str, expr: pl.Expr, condition: dict) -> pl.Expr:
+    def apply_conditioned_expr(
+        current_expr: pl.Expr, new_expr: pl.Expr, condition: dict
+    ) -> pl.Expr:
         """
-        Applies an expression only to rows that satisfy a given condition.
-
-        If the condition is not met, the original value is kept.
-
-        Parameters:
-            col (str): The name of the target column being transformed.
-            expr (pl.Expr): The transformation expression to apply conditionally.
-            condition (dict): A dictionary defining the condition with:
-                - "column" (str): Column to evaluate.
-                - "operator" (str): One of ["equals", "not_equals", "in", "not_in", "gt", "gte",
-                                            "lt", "lte", "contains", "not_contains"].
-                - "value" (any): The value to compare against.
-
-        Returns:
-            pl.Expr: The resulting expression with conditional logic applied.
-
-        Raises:
-            ValueError: If an unsupported operator is provided or required keys are missing.
+        Aplica `new_expr` só onde a `condition` é True; caso contrário mantém `current_expr`.
+        Aceita tanto (column/operator) quanto (col/op) por compat.
         """
-        condition_col = condition.get("column")
-        operator = condition.get("operator", "equals")
-        value = condition.get("value")
+        if not condition:
+            return new_expr
 
-        if not condition_col or value is None:
-            return expr
+        cond_col = condition.get("column", condition.get("col"))
+        op = condition.get("operator", condition.get("op", "equals"))
+        val = condition.get("value")
 
-        col_expr = pl.col(condition_col)
+        if not cond_col or val is None:
+            return current_expr
 
-        if isinstance(value, (int, float)):
-            col_expr = col_expr.cast(pl.Float64 if isinstance(value, float) else pl.Int64)
-        elif isinstance(value, str):
-            col_expr = col_expr.cast(pl.Utf8)
-        elif isinstance(value, list) and all(isinstance(v, str) for v in value):
+        col_expr = pl.col(cond_col)
+
+        if isinstance(val, (int, float)):
+            col_expr = col_expr.cast(pl.Float64 if isinstance(val, float) else pl.Int64)
+        elif isinstance(val, str):
             col_expr = col_expr.cast(pl.Utf8)
 
-        cond_expr = {
-            "equals": col_expr == value,
-            "not_equals": col_expr != value,
-            "in": col_expr.is_in(value),
-            "not_in": ~col_expr.is_in(value),
-            "gt": col_expr > value,
-            "gte": col_expr >= value,
-            "lt": col_expr < value,
-            "lte": col_expr <= value,
-            "contains": col_expr.cast(pl.Utf8).str.contains(value),
-            "not_contains": ~col_expr.cast(pl.Utf8).str.contains(value),
-        }.get(operator)
+        if op in ("equals", "=="):
+            cond = col_expr == val
+        elif op in ("not_equals", "!="):
+            cond = col_expr != val
+        elif op == "in":
+            cond = col_expr.is_in(val)
+        elif op == "not_in":
+            cond = ~col_expr.is_in(val)
+        elif op in (">", "gt"):
+            cond = col_expr > val
+        elif op in (">=", "gte"):
+            cond = col_expr >= val
+        elif op in ("<", "lt"):
+            cond = col_expr < val
+        elif op in ("<=", "lte"):
+            cond = col_expr <= val
+        elif op in ("contains",):
+            cond = col_expr.cast(pl.Utf8).str.contains(str(val))
+        elif op in ("not_contains",):
+            cond = ~col_expr.cast(pl.Utf8).str.contains(str(val))
+        else:
+            return current_expr
 
-        if cond_expr is None:
-            raise ValueError(f"Unsupported operator: {operator}")
-
-        return pl.when(cond_expr).then(expr).otherwise(pl.col(col)).alias(col)
+        cond = cond.fill_null(False)
+        return pl.when(cond).then(new_expr).otherwise(current_expr)
 
     @classmethod
     def anonymize(cls, df: pl.DataFrame, config: dict) -> pl.DataFrame:
         """
-        Applies one or more anonymization methods to a Polars DataFrame based on a given configuration.
+        Applies one or more anonymization methods to a Polars DataFrame based on
+        a given configuration.
 
         The configuration allows defining one or more anonymization strategies per column,
         optionally using conditions to apply them selectively.
@@ -620,9 +656,11 @@ class AnonymizationMethods:
 
         Special Cases:
             - If a column method is "drop", the column will be removed.
-            - If a method includes a "condition", it will only be applied where the condition is satisfied.
-            - Columns not found in the DataFrame will be skipped unless used in a conditional rule,
-              in which case a `null` column will be added before applying the condition.
+            - If a method includes a "condition", it will only be applied where
+             the condition is satisfied.
+            - Columns not found in the DataFrame will be skipped unless used in a
+              conditional rule, in which case a `null` column will be added before
+              applying the condition.
 
         Returns:
             pl.DataFrame: A new DataFrame with the applied anonymization rules.
@@ -631,47 +669,62 @@ class AnonymizationMethods:
         exprs = []
         dispatch_map = cls.build_dispatch_map()
 
-        dropped_cols = [col for col, rule in config["columns"].items()
-                        if isinstance(rule, dict) and rule.get("method") == "drop"]
+        dropped_cols = [
+            col
+            for col, rule in config["columns"].items()
+            if isinstance(rule, dict) and rule.get("method") == "drop"
+        ]
 
         if dropped_cols:
             logger.warning(f"⚠️ Dropping columns: {dropped_cols}")
-            df = df.drop(dropped_cols)
+            df = df.drop(dropped_cols, strict=False)
 
         for col, rule in config["columns"].items():
             column_exists = col in df.columns
-            has_condition = (
-                                    isinstance(rule, dict) and "condition" in rule
-                            ) or (
-                                    isinstance(rule, list) and any(
-                                isinstance(r, dict) and "condition" in r for r in rule
-                            )
-                            )
+            has_condition = (isinstance(rule, dict) and "condition" in rule) or (
+                isinstance(rule, list)
+                and any(isinstance(r, dict) and "condition" in r for r in rule)
+            )
 
             if not column_exists:
                 if has_condition:
-                    logger.info(f"➕ Column '{col}' not found — adding as null to apply conditional rule.")
+                    logger.info(
+                        f"➕ Column '{col}' not found — adding as null to apply conditional rule."
+                    )
                     df = df.with_columns(pl.lit(None).alias(col))
                 else:
-                    logger.warning(f"⏭️ Skipping unknown column: {col}")
+                    logger.warning(f"⏭️ Skipping Unknown column: {col}")
                     continue
 
             rule_list = [rule] if isinstance(rule, (str, dict)) else rule
             current_expr = pl.col(col)
 
             for r in rule_list:
-                method, params = (r, {}) if isinstance(r, str) else (r.get("method"), r.get("params", {}))
-                condition = r.get("condition") if isinstance(r, dict) else None
+                if isinstance(r, str):
+                    method, params, condition = r, {}, None
+                else:
+                    method = r.get("method")
+                    params = r.get("params") or {}
+                    condition = r.get("condition")
 
                 if method not in dispatch_map:
-                    logger.error(f"❌ Unknown method '{method}' for column '{col}'. Skipping.")
+                    logger.error(
+                        f"❌ Unknown method '{method}' for column '{col}'. Skipping."
+                    )
                     continue
 
-                logger.debug(f"🔧 Applying method '{method}' to column '{col}'"
-                             f"{' with condition' if condition else ''}")
-                expr = dispatch_map[method](df, col, params)
-                expr = cls.apply_conditioned_expr(col, expr, condition) if condition else expr
-                current_expr = expr
+                logger.debug(
+                    f"🔧 Applying method '{method}' to column '{col}'"
+                    f"{' with condition' if condition else ''}"
+                )
+
+                new_expr = dispatch_map[method](df, col, params)
+                if condition:
+                    current_expr = cls.apply_conditioned_expr(
+                        current_expr, new_expr, condition
+                    )
+                else:
+                    current_expr = new_expr
 
             exprs.append(current_expr.alias(col))
 
@@ -680,20 +733,24 @@ class AnonymizationMethods:
         return result_df
 
     @classmethod
-    def build_dispatch_map(cls):
+    def build_dispatch_map(
+        cls,
+    ) -> dict[str, Callable[[pl.DataFrame, str, dict], pl.Expr]]:
         """
-        Builds a mapping between method names (as strings) and their corresponding
-        anonymization functions defined in this class.
+        Build a mapping between public anonymization method names and callables.
 
-        This is used internally by `anonymize()` to dynamically dispatch method calls
-        based on the configuration.
+        This is used by `anonymize()` to dispatch methods based on the configuration.
 
         Returns:
-            dict: A dictionary where keys are method names and values are callables with signature:
-                  (df: pl.DataFrame, col: str, params: dict) → pl.Expr
+            dict: Keys are method names; values are callables with signature
+                  (df: pl.DataFrame, col: str, params: dict) -> pl.Expr.
         """
-        return {
-            name: (lambda m: (lambda df, col, params: m(df, col, params)))(method)
-            for name, method in inspect.getmembers(cls, predicate=inspect.isfunction)
-            if not name.startswith("_") and name not in {"apply_conditioned_expr", "anonymize", "build_dispatch_map"}
-        }
+        exclude = {"apply_conditioned_expr", "anonymize", "build_dispatch_map"}
+
+        dispatch: dict[str, Callable[[pl.DataFrame, str, dict], pl.Expr]] = {}
+        for name, func in inspect.getmembers(cls, predicate=inspect.isfunction):
+            if name.startswith("_") or name in exclude:
+                continue
+            dispatch[name] = func
+
+        return dispatch
