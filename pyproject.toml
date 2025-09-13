@@ -1,20 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
 [project]
 name = "cloakdata"
-version = "1.0.0"
-description = "A lightweight library for anonymizing tabular datasets using Polars"
-keywords = ["anonymization", "data privacy", "polars", "etl", "data masking"]
-authors = [
-  { name = "Jeferson Peter" }
-]
+version = "1.0.1"
+description = "Fast data anonymization with Polars"
 readme = "README.md"
 requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Jeferson Peter" }]
+keywords = ["anonymization", "privacy", "polars", "masking"]
+
 dependencies = [
   "polars>=1.31.0",
-  "loguru>=0.7.3"
+  "loguru>=0.7.3",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+# extras opcionais: install com `pip install cloakdata[pandas-interop,dev]`
+[project.optional-dependencies]
+pandas = ["pandas>=2.2"]
+dev = ["pytest>=8", "coverage[toml]>=7.6", "ruff>=0.5", "pre-commit>=3.7"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[project.urls]
+Homepage = "https://github.com/Jeferson-Peter/cloakdata"
+Issues = "https://github.com/Jeferson-Peter/cloakdata/issues"
+Changelog = "https://github.com/Jeferson-Peter/cloakdata/releases"
+
+# classificadores exibidos no PyPI
+#classifiers = [
+#  "Development Status :: 5 - Production/Stable",
+#  "Intended Audience :: Developers",
+#  "License :: OSI Approved :: MIT License",
+#  "Programming Language :: Python",
+#  "Programming Language :: Python :: 3",
+#  "Programming Language :: Python :: 3.10",
+#  "Programming Language :: Python :: 3.11",
+#  "Programming Language :: Python :: 3.12",
+#  "Typing :: Typed",
+#  "Topic :: Software Development :: Libraries"
+#]
+
+# ---------- build (hatch) ----------
+[tool.hatch.build.targets.wheel]
+packages = ["src/cloakdata"]
+
+[tool.hatch.build]
+include = ["src/cloakdata/py.typed"]
+
+# ---------- qualidade ----------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "PL", "PLC"]
+exclude = ["tests/fixtures"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+# ---------- coverage (opcional, já pronto) ----------
+[tool.coverage.run]
+branch = true
+source = ["src/cloakdata"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
