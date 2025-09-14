@@ -1,5 +1,11 @@
 # 🔐 CloakData — Data Anonymizer
 
+![PyPI](https://img.shields.io/pypi/v/cloakdata.svg)
+![Python](https://img.shields.io/pypi/pyversions/cloakdata.svg)
+![Downloads](https://img.shields.io/pypi/dm/cloakdata.svg)
+[![CI](https://github.com/Jeferson-Peter/cloakdata/actions/workflows/publish.yml/badge.svg)](https://github.com/Jeferson-Peter/cloakdata/actions/workflows/publish.yml)
+![License](https://img.shields.io/github/license/Jeferson-Peter/cloakdata)
+
 > A flexible and extensible **data anonymization library** built on [Polars](https://pola.rs/).
 > Designed for **privacy, compliance, and testing** with minimal overhead.
 
@@ -22,7 +28,7 @@
 ## ⚙️ How it works
 
 1. Load your dataset into a Polars `DataFrame`.
-2. Define anonymization rules in a simple JSON/YAML config.
+2. Define anonymization rules in a simple JSON config.
 3. Call `anonymize(df, config)` → get a safe anonymized DataFrame.
 
 ---
@@ -32,25 +38,25 @@
 ```json
 {
   "columns": {
-    "name": "initials_only",
-    "email": "mask_email",
-    "phone": "mask_number",
+    "name": { "method": "initials_only" },
+    "email": { "method": "mask_email" },
+    "phone": { "method": "mask_number" },
     "cpf": {
-      "method": "replace_with_fake",
+      "method": "replace_with_random_digits",
       "params": { "digits": 11 }
     },
     "status": {
-      "method": "replace_by_dict",
+      "method": "replace_exact",
       "params": { "mapping": { "active": "A", "inactive": "I" } }
     },
     "id_seq": { "method": "sequential_numeric", "params": { "prefix": "ID" } },
     "ref_code": { "method": "sequential_alpha", "params": { "prefix": "REF" } },
     "comments": { "method": "truncate", "params": { "length": 5 } },
-    "age": "generalize_age",
+    "age": { "method": "generalize_age" },
     "birth_date": { "method": "generalize_date", "params": { "mode": "month_year" } },
     "state": { "method": "random_choice", "params": { "choices": ["SP","RJ","MG","BA"] } },
     "last_access": { "method": "date_offset", "params": { "min_days": -2, "max_days": 2 } },
-    "feedback": "shuffle"
+    "feedback": { "method": "shuffle" }
   }
 }
 ```
@@ -63,7 +69,7 @@ Apply transformations only when conditions are met:
 
 ```json
 "cpf": {
-  "method": "replace_with_fake",
+  "method": "replace_with_random_digits",
   "params": { "digits": 11 },
   "condition": {
     "column": "status",
@@ -85,6 +91,45 @@ Apply transformations only when conditions are met:
 | lt / lte      | Less than / less or equal            |
 | contains      | Substring exists in string           |
 | not_contains  | Substring does not exist in string   |
+
+---
+
+## 🔍 Example Input → Output
+
+**Input DataFrame:**
+
+| name         | email              | age | status   |
+|--------------|--------------------|-----|----------|
+| Alice Smith  | alice@example.com  | 25  | active   |
+| Bob Jones    | bob@example.com    | 42  | inactive |
+
+**Config:**
+
+```json
+{
+  "columns": {
+    "name": { "method": "initials_only" },
+    "email": { "method": "mask_email" },
+    "age": { "method": "generalize_age" },
+    "cpf": {
+      "method": "replace_with_random_digits",
+      "params": { "digits": 8 },
+      "condition": {
+        "column": "status",
+        "operator": "equals",
+        "value": "active"
+      }
+    }
+  }
+}
+```
+
+**Output DataFrame:**
+
+| name | email             | age   | cpf       |
+|------|-------------------|-------|-----------|
+| A.S. | xxxxx@example.com | 20-29 | 48291034  |
+| B.J. | xxxxx@example.com | 40-49 | (null)    |
 
 ---
 
@@ -129,9 +174,9 @@ df = pl.DataFrame({
 
 config = {
     "columns": {
-        "name": "initials_only",
-        "email": "mask_email",
-        "age": "generalize_age"
+        "name": { "method": "initials_only" },
+        "email": { "method": "mask_email" },
+        "age": { "method": "generalize_age" }
     }
 }
 
@@ -157,11 +202,10 @@ pytest -v
 
 - [ ] Regex-based redaction
 - [ ] Hashing strategies (SHA256, bcrypt)
-- [ ] CLI interface (`cloakdata file.csv --config config.json`)
 - [ ] Parallel processing for large datasets
 
 ---
 
 ## 📜 License
 
-MIT © [Your Name]
+MIT © Jeferson Peter
