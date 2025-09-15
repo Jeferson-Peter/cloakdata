@@ -17,6 +17,11 @@ dependencies = [
   "loguru>=0.7.3",
 ]
 
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+
 # extras opcionais: install com `pip install cloakdata[pandas-interop,dev]`
 [project.optional-dependencies]
 pandas = ["pandas>=2.2"]
