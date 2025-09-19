@@ -1,4 +1,3 @@
-# tests/test_generalize.py
 from cloakdata import anonymize
 
 

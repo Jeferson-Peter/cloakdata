@@ -41,10 +41,28 @@ def df_factory():
 
 @pytest.fixture
 def cfg_factory():
-    def make(method: str, column: str, **params):
-        node = {"method": method}
+    def make(method: str | None, column: str, *, rules: list[dict] | None = None, **params):
+        """
+        Ex.:
+          cfg_factory("replace_with_value", "city", value="X", condition={...})
+          cfg_factory(
+              None,
+              "city",
+              rules=[
+                  {"method": "...", "params": {...}},
+                  {"method": "...", "condition": {...}},
+              ],
+          )
+        """
+        if rules is not None:
+            return {"columns": {column: rules}}
+
+        condition = params.pop("condition", None)
+        node = {"method": method} if method else {}
         if params:
             node["params"] = params
+        if condition is not None:
+            node["condition"] = condition
         return {"columns": {column: node}}
 
     return make
