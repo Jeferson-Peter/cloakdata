@@ -10,6 +10,16 @@
 
 ---
 
+## 🧾 What’s New (1.1.0)
+
+- ✅ Added **Conditional Rules** with multi-rule support per column.
+- ✅ Added nested conditions: `all`, `any`, `not`.
+- ✅ Logical operators supported: `and`, `or`.
+- ✅ Extended test coverage for conditions.
+- 🧹 Internal refactors & style improvements (ruff).
+
+---
+
 ## ✨ Features
 
 - 🔒 **Masking**: full, partial, emails, phone numbers.
@@ -19,7 +29,7 @@
 - 📊 **Generalization**: ages into ranges, dates into month/year.
 - 🎲 **Randomization**: choices, digits, shuffling.
 - 📅 **Date offsetting** with reproducible seeds.
-- 🧩 **Conditional rules** based on other columns.
+- 🧩 **Conditional rules** — multi-rules, nested (`all`/`any`/`not`), logical groups (`and`/`or`).
 - ⚡ Built on **Polars** → fast & scalable.
 
 ---
@@ -64,7 +74,9 @@
 
 ## 🧠 Conditional Rules
 
-Apply transformations only when conditions are met:
+Apply transformations only when conditions are met.
+
+### Single condition
 
 ```json
 "cpf": {
@@ -78,18 +90,41 @@ Apply transformations only when conditions are met:
 }
 ```
 
-### Supported operators
+### Multiple rules per column
 
-| Operator      | Description                          |
-|---------------|--------------------------------------|
-| equals        | Equal to                             |
-| not_equals    | Not equal to                         |
-| in            | Value in list                        |
-| not_in        | Value not in list                    |
-| gt / gte      | Greater than / greater or equal      |
-| lt / lte      | Less than / less or equal            |
-| contains      | Substring exists in string           |
-| not_contains  | Substring does not exist in string   |
+```json
+"city": [
+  { "method": "replace_with_value", "params": { "value": "X" } },
+  {
+    "method": "mask_partial",
+    "params": { "visible_start": 1, "visible_end": 1 },
+    "condition": { "column": "country", "operator": "equals", "value": "BR" }
+  }
+]
+```
+
+### Nested conditions
+
+```json
+"age": {
+  "method": "generalize_age",
+  "condition": {
+    "all": [
+      { "column": "country", "operator": "equals", "value": "BR" },
+      { "any": [
+          { "column": "status", "operator": "equals", "value": "active" },
+          { "column": "status", "operator": "equals", "value": "archived" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Operators supported**:
+`equals`, `not_equals`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `contains`, `not_contains`
+**Groups**: `all`, `any`, `not`
+**Logical**: `and`, `or`
 
 ---
 
@@ -397,11 +432,11 @@ pytest -v
 
 ## 🤝 Contributing
 
-We love contributions! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, coding standards, how to add a new anonymization method, tests and the PR checklist.
+We love contributions! See **[CONTRIBUTING.md](https://github.com/Jeferson-Peter/cloakdata/blob/development/CONTRIBUTING.md)** for setup, coding standards, how to add a new anonymization method, tests and the PR checklist.
 
 ## 📄 Notice
 
-See **[NOTICE](NOTICE)** for attribution details.
+See **[NOTICE](https://github.com/Jeferson-Peter/cloakdata/blob/development/NOTICE)** for attribution details.
 
 ## 📜 License
 

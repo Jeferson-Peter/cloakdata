@@ -1,4 +1,3 @@
-# tests/test_drop.py
 import polars as pl
 from polars.testing import assert_frame_equal
 
@@ -6,7 +5,6 @@ from cloakdata import anonymize
 
 
 def _cols_except(df: pl.DataFrame, drops: set[str]) -> list[str]:
-    """Convenience: mantém a ordem original exceto as colunas dropadas."""
     return [c for c in df.columns if c not in drops]
 
 

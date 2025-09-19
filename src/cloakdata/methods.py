@@ -1,11 +1,8 @@
-import inspect
 import random
 import string
-from collections.abc import Callable
 from datetime import datetime
 
 import polars as pl
-from loguru import logger
 
 
 class AnonymizationMethods:
@@ -222,9 +219,7 @@ class AnonymizationMethods:
         idx = pl.arange(pl.lit(0), pl.len())
         ordinal = idx + offset
 
-        letters = ordinal.map_elements(
-            lambda k: num_to_alpha(int(k)), return_dtype=pl.Utf8
-        )
+        letters = ordinal.map_elements(lambda k: num_to_alpha(int(k)), return_dtype=pl.Utf8)
 
         if prefix is None:
             return letters.alias(col)
@@ -248,9 +243,7 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that truncates each string to the specified length.
         """
-        return (
-            pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
-        )
+        return pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
 
     @staticmethod
     def initials_only(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
@@ -341,9 +334,7 @@ class AnonymizationMethods:
         )
 
     @staticmethod
-    def replace_with_random_digits(
-        _df: pl.DataFrame, col: str, params: dict
-    ) -> pl.Expr:
+    def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
         Replaces each value in the column with a randomly generated fake number (e.g., CPF, ID).
 
@@ -362,9 +353,7 @@ class AnonymizationMethods:
         return (
             pl.col(col)
             .map_elements(
-                lambda _: "".join(
-                    random.choices(string.digits, k=params.get("digits", 11))
-                ),
+                lambda _: "".join(random.choices(string.digits, k=params.get("digits", 11))),
                 return_dtype=pl.Utf8,
             )
             .alias(col)
@@ -479,9 +468,7 @@ class AnonymizationMethods:
         """
         interval = params.get("interval", 10)
         base = (pl.col(col).cast(pl.Int64) // interval) * interval
-        return (
-            base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)
-        ).alias(col)
+        return (base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)).alias(col)
 
     @staticmethod
     def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -574,183 +561,4 @@ class AnonymizationMethods:
             except Exception:
                 return "invalid"
 
-        return (
-            pl.col(col)
-            .cast(pl.Utf8)
-            .map_elements(rounder, return_dtype=pl.Utf8)
-            .alias(col)
-        )
-
-    @staticmethod
-    def apply_conditioned_expr(
-        current_expr: pl.Expr, new_expr: pl.Expr, condition: dict
-    ) -> pl.Expr:
-        """
-        Aplica `new_expr` só onde a `condition` é True; caso contrário mantém `current_expr`.
-        Aceita tanto (column/operator) quanto (col/op) por compat.
-        """
-        if not condition:
-            return new_expr
-
-        cond_col = condition.get("column", condition.get("col"))
-        op = condition.get("operator", condition.get("op", "equals"))
-        val = condition.get("value")
-
-        if not cond_col or val is None:
-            return current_expr
-
-        col_expr = pl.col(cond_col)
-
-        if isinstance(val, (int, float)):
-            col_expr = col_expr.cast(pl.Float64 if isinstance(val, float) else pl.Int64)
-        elif isinstance(val, str):
-            col_expr = col_expr.cast(pl.Utf8)
-
-        if op in ("equals", "=="):
-            cond = col_expr == val
-        elif op in ("not_equals", "!="):
-            cond = col_expr != val
-        elif op == "in":
-            cond = col_expr.is_in(val)
-        elif op == "not_in":
-            cond = ~col_expr.is_in(val)
-        elif op in (">", "gt"):
-            cond = col_expr > val
-        elif op in (">=", "gte"):
-            cond = col_expr >= val
-        elif op in ("<", "lt"):
-            cond = col_expr < val
-        elif op in ("<=", "lte"):
-            cond = col_expr <= val
-        elif op in ("contains",):
-            cond = col_expr.cast(pl.Utf8).str.contains(str(val))
-        elif op in ("not_contains",):
-            cond = ~col_expr.cast(pl.Utf8).str.contains(str(val))
-        else:
-            return current_expr
-
-        cond = cond.fill_null(False)
-        return pl.when(cond).then(new_expr).otherwise(current_expr)
-
-    @classmethod
-    def anonymize(cls, df: pl.DataFrame, config: dict) -> pl.DataFrame:
-        """
-        Applies one or more anonymization methods to a Polars DataFrame based on
-        a given configuration.
-
-        The configuration allows defining one or more anonymization strategies per column,
-        optionally using conditions to apply them selectively.
-
-        Parameters:
-            df (pl.DataFrame): The original input DataFrame.
-            config (dict): A dictionary with the following structure:
-                {
-                    "columns": {
-                        "column_name": "method_name" | {
-                            "method": "method_name",
-                            "params": { ... },
-                            "condition": { ... }
-                        } | [ ... multiple rules ... ]
-                    }
-                }
-
-        Special Cases:
-            - If a column method is "drop", the column will be removed.
-            - If a method includes a "condition", it will only be applied where
-             the condition is satisfied.
-            - Columns not found in the DataFrame will be skipped unless used in a
-              conditional rule, in which case a `null` column will be added before
-              applying the condition.
-
-        Returns:
-            pl.DataFrame: A new DataFrame with the applied anonymization rules.
-        """
-        logger.info("🔐 Starting anonymization process...")
-        exprs = []
-        dispatch_map = cls.build_dispatch_map()
-
-        dropped_cols = [
-            col
-            for col, rule in config["columns"].items()
-            if isinstance(rule, dict) and rule.get("method") == "drop"
-        ]
-
-        if dropped_cols:
-            logger.warning(f"⚠️ Dropping columns: {dropped_cols}")
-            df = df.drop(dropped_cols, strict=False)
-
-        for col, rule in config["columns"].items():
-            column_exists = col in df.columns
-            has_condition = (isinstance(rule, dict) and "condition" in rule) or (
-                isinstance(rule, list)
-                and any(isinstance(r, dict) and "condition" in r for r in rule)
-            )
-
-            if not column_exists:
-                if has_condition:
-                    logger.info(
-                        f"➕ Column '{col}' not found — adding as null to apply conditional rule."
-                    )
-                    df = df.with_columns(pl.lit(None).alias(col))
-                else:
-                    logger.warning(f"⏭️ Skipping Unknown column: {col}")
-                    continue
-
-            rule_list = [rule] if isinstance(rule, (str, dict)) else rule
-            current_expr = pl.col(col)
-
-            for r in rule_list:
-                if isinstance(r, str):
-                    method, params, condition = r, {}, None
-                else:
-                    method = r.get("method")
-                    params = r.get("params") or {}
-                    condition = r.get("condition")
-
-                if method not in dispatch_map:
-                    logger.error(
-                        f"❌ Unknown method '{method}' for column '{col}'. Skipping."
-                    )
-                    continue
-
-                logger.debug(
-                    f"🔧 Applying method '{method}' to column '{col}'"
-                    f"{' with condition' if condition else ''}"
-                )
-
-                new_expr = dispatch_map[method](df, col, params)
-                if condition:
-                    current_expr = cls.apply_conditioned_expr(
-                        current_expr, new_expr, condition
-                    )
-                else:
-                    current_expr = new_expr
-
-            exprs.append(current_expr.alias(col))
-
-        result_df = df.with_columns(exprs) if exprs else df
-        logger.success(f"✅ Anonymization complete. {len(exprs)} column(s) processed.")
-        return result_df
-
-    @classmethod
-    def build_dispatch_map(
-        cls,
-    ) -> dict[str, Callable[[pl.DataFrame, str, dict], pl.Expr]]:
-        """
-        Build a mapping between public anonymization method names and callables.
-
-        This is used by `anonymize()` to dispatch methods based on the configuration.
-
-        Returns:
-            dict: Keys are method names; values are callables with signature
-                  (df: pl.DataFrame, col: str, params: dict) -> pl.Expr.
-        """
-        exclude = {"apply_conditioned_expr", "anonymize", "build_dispatch_map"}
-
-        dispatch: dict[str, Callable[[pl.DataFrame, str, dict], pl.Expr]] = {}
-        for name, func in inspect.getmembers(cls, predicate=inspect.isfunction):
-            if name.startswith("_") or name in exclude:
-                continue
-            dispatch[name] = func
-
-        return dispatch
+        return pl.col(col).cast(pl.Utf8).map_elements(rounder, return_dtype=pl.Utf8).alias(col)
