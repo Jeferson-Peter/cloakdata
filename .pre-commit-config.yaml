@@ -19,4 +19,4 @@ repos:
     rev: v2.3.0
     hooks:
       - id: codespell
-        args: ["-L", "nd,teh"]   # whitelist se precisar
+        args: ["-L", "nd,teh"]
