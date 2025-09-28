@@ -27,7 +27,6 @@ class AnonymizationMethods:
           - match_length: bool = False        # repeats `char` to original length
           - preserve_nulls: bool = True
         """
-        params = params.get("params", {})
         s = pl.col(col).cast(pl.Utf8)
         preserve_nulls = bool(params.get("preserve_nulls", True))
         char = str(params.get("char", "*"))
