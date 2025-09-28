@@ -2,6 +2,14 @@ import polars as pl
 
 from cloakdata import anonymize
 
+KEEP_DEFAULT = 3
+KEEP_TWO = 2
+FIXED_LEN_4 = 4
+MASK_STAR = "*"
+MASK_X = "X"
+MASK_HASH = "#"
+SUFFIX_LEN4 = "#" * FIXED_LEN_4
+
 
 def test_full_mask_default_preserves_nulls(city_df, cfg_factory):
     """Masks non-nulls with '*****' and preserves nulls."""
@@ -160,8 +168,89 @@ def test_truncate(city_df, cfg_factory):
     assert out["city"].to_list() == [s[:3] for s in city_df["city"].to_list()]
 
 
-def test_mask_number(numeric_df, cfg_factory):
-    """Masks numeric values, keeping the defined number of leading characters."""
-    cfg = cfg_factory("mask_number", "num", keep=1, mask="X")
-    out = anonymize(numeric_df, cfg)
-    assert out["num"].dtype == pl.Utf8
+def test_mask_number_default(df_factory, cfg_factory):
+    """Default (keep=3, mask='*', dynamic rest): preserve first 3 and fill the rest with '*'."""
+    df = df_factory(num=["123456789", "42", None])
+    cfg = cfg_factory("mask_number", "num")
+    out = anonymize(df, cfg)["num"]
+    orig = df["num"].cast(pl.Utf8)
+
+    nn = orig.is_not_null()
+    assert (out.filter(nn).str.len_chars() == orig.filter(nn).str.len_chars()).all()
+    assert (out.str.slice(0, 3) == orig.str.slice(0, 3)).all()
+
+    tail_gt3 = orig.str.len_chars() > KEEP_DEFAULT
+    assert out.filter(tail_gt3).str.slice(3).str.contains(r"^\*+$", literal=False).all()
+
+    nulls = orig.is_null()
+    assert out.filter(nulls).null_count() == nulls.sum()
+
+
+def test_mask_number_custom_keep_mask(df_factory, cfg_factory):
+    """Custom keep/mask: keep=2, mask='X'."""
+    df = df_factory(num=["987654321", "1", "abc123"])
+    cfg = cfg_factory("mask_number", "num", keep=2, mask="X")
+    out = anonymize(df, cfg)["num"]
+    orig = df["num"].cast(pl.Utf8)
+
+    assert (out.str.slice(0, 2) == orig.str.slice(0, 2)).all()
+
+    tail_gt2 = orig.str.len_chars() > KEEP_TWO
+    assert out.filter(tail_gt2).str.slice(2).str.contains(r"^X+$", literal=False).all()
+
+
+def test_mask_number_fixed_len(df_factory, cfg_factory):
+    """Fixed length: keep=2, mask='#', len=4 → result len = min(len(orig),2) + 4 (non-nulls)."""
+    df = df_factory(num=["55555", "7", "1234567890", ""])
+    cfg = cfg_factory("mask_number", "num", keep=2, mask="#", len=4)
+    out = anonymize(df, cfg)["num"]
+    orig = df["num"].cast(pl.Utf8)
+
+    tmp = pl.DataFrame({"v": orig}).with_columns(
+        expected_len=pl.min_horizontal(pl.col("v").str.len_chars(), pl.lit(2)) + 4
+    )
+    nn = orig.is_not_null()
+    assert (out.filter(nn).str.len_chars() == tmp.filter(nn)["expected_len"]).all()
+
+    ge2 = orig.str.len_chars() >= KEEP_TWO
+    assert (out.filter(ge2).str.slice(0, 2) == orig.filter(ge2).str.slice(0, 2)).all()
+
+    lt2 = orig.str.len_chars() < KEEP_TWO
+    assert out.filter(lt2).str.starts_with(orig.filter(lt2)).all()
+
+    assert out.filter(nn).str.ends_with("####").all()
+
+
+def test_mask_number_handles_short_values(df_factory, cfg_factory):
+    """Values shorter than keep are unchanged with dynamic rest."""
+    df = df_factory(num=["9", "12", "123"])
+    cfg = cfg_factory("mask_number", "num")
+    out = anonymize(df, cfg)["num"].to_list()
+    assert out == ["9", "12", "123"]
+
+
+def test_mask_number_non_string_inputs(df_factory, cfg_factory):
+    """Non-strings are cast to string and masked."""
+    df = df_factory(num=[12345, 7, None, -38])
+    cfg = cfg_factory("mask_number", "num")
+    out = anonymize(df, cfg)["num"]
+    orig = df["num"].cast(pl.Utf8)
+
+    nn = orig.is_not_null()
+    assert (out.filter(nn).str.len_chars() == orig.filter(nn).str.len_chars()).all()
+    assert (out.str.slice(0, 3) == orig.str.slice(0, 3)).all()
+
+    tail_gt3 = orig.str.len_chars() > KEEP_DEFAULT
+    assert out.filter(tail_gt3).str.slice(3).str.contains(r"^\*+$", literal=False).all()
+
+    nulls = orig.is_null()
+    assert out.filter(nulls).null_count() == nulls.sum()
+
+
+def test_mask_number_idempotent(df_factory, cfg_factory):
+    """Applying the same config twice yields the same series."""
+    df = df_factory(num=["123456", "42", None])
+    cfg = cfg_factory("mask_number", "num", keep=2, mask="X")
+    out1 = anonymize(df, cfg)
+    out2 = anonymize(out1, cfg)
+    assert out1["num"].to_list() == out2["num"].to_list()
