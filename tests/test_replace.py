@@ -14,10 +14,72 @@ def test_replace_exact(city_df, cfg_factory):
     assert out["city"].to_list() == ["CWB", "Joinville", "São Paulo"]
 
 
-def test_replace_by_contains(city_df, cfg_factory):
-    cfg = cfg_factory("replace_by_contains", "city", mapping={"São": "SP"})
-    out = anonymize(city_df, cfg)
-    assert out["city"].to_list() == ["Curitiba", "Joinville", "SP"]
+def test_replace_by_contains_requires_mapping_or_substr(df_factory, cfg_factory):
+    """Raises ValueError if neither 'mapping' nor 'substr' is provided."""
+    df = df_factory(txt=["foo", "bar", None])
+    cfg = cfg_factory("replace_by_contains", "txt")
+    with pytest.raises(ValueError):
+        anonymize(df, cfg)
+
+
+def test_replace_by_contains_literal_match(df_factory, cfg_factory):
+    """Replaces values when they contain given substrings (literal matching)."""
+    df = df_factory(txt=["foo", "bar", "baz", None])
+    cfg = cfg_factory(
+        "replace_by_contains",
+        "txt",
+        mapping={"ba": "X"},
+    )
+    out = anonymize(df, cfg)["txt"].to_list()
+    assert out == ["foo", "X", "X", None]
+
+
+def test_replace_by_contains_regex_enabled(df_factory, cfg_factory):
+    """Supports regex when use_regex=True."""
+    df = df_factory(txt=["id=123", "noid", "id=999", None])
+    cfg = cfg_factory(
+        "replace_by_contains",
+        "txt",
+        mapping={r"\d{3}": "HIT"},
+        use_regex=True,
+    )
+    out = anonymize(df, cfg)["txt"].to_list()
+    assert out == ["HIT", "noid", "HIT", None]
+
+
+def test_replace_by_contains_case_insensitive(df_factory, cfg_factory):
+    """Case-insensitive matching when case_sensitive=False."""
+    df = df_factory(txt=["Hello", "heLLo", "world", None])
+    cfg = cfg_factory(
+        "replace_by_contains",
+        "txt",
+        mapping={"hello": "X"},
+        case_sensitive=False,
+    )
+    out = anonymize(df, cfg)["txt"].to_list()
+    assert out == ["X", "X", "world", None]
+
+
+def test_replace_by_contains_first_match_wins(df_factory, cfg_factory):
+    """Rules are applied left-to-right; the first matching rule wins."""
+    df = df_factory(txt=["foobar", "barfoo", "xx", None])
+    mapping = {"foo": "A", "bar": "B"}
+    cfg = cfg_factory("replace_by_contains", "txt", mapping=mapping)
+    out = anonymize(df, cfg)["txt"].to_list()
+    assert out == ["A", "A", "xx", None]
+
+
+def test_replace_by_contains_single_substr_convenience(df_factory, cfg_factory):
+    """Works with single 'substr' + 'replacement' convenience params."""
+    df = df_factory(txt=["abc", "zzz", None])
+    cfg = cfg_factory(
+        "replace_by_contains",
+        "txt",
+        substr="ab",
+        replacement="HIT",
+    )
+    out = anonymize(df, cfg)["txt"].to_list()
+    assert out == ["HIT", "zzz", None]
 
 
 def test_replace_with_value_requires_value(df_factory, cfg_factory):
