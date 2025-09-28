@@ -180,29 +180,29 @@ Runnable, self-contained scripts are in the [examples/](examples) folder.
 
 ## 📊 Supported Methods
 
-| Method                      | Description                                                                 | Example Input → Output                  |
-|-----------------------------|-----------------------------------------------------------------------------|-----------------------------------------|
-| [`full_mask`](examples/masking/full_mask.py) | Fixed mask or literal; supports `char`, `len`, `mask_literal`, `match_length`, `preserve_nulls`. | `12345` → `*****` / `XXXXXXXX` / `REDACTED` |
-| [`mask_email`](examples/masking/mask_email.py) | Masks local part; supports `mask`, `fallback_domain`, `preserve_nulls`.    | `john@example.com` → `xxxxx@example.com` |
-| `mask_number`               | Keep first N digits, mask the rest                                          | `123456789` → `123*****`                |
-| `mask_partial`              | Show start & end, mask the middle                                           | `abcdef` → `a****f`                     |
-| `replace_with_value`        | Replace with a static value                                                 | `NY` → `Unknown`                        |
-| `replace_exact`             | Replace exact matches by mapping                                            | `active` → `A`                          |
-| `replace_by_contains`       | Replace if substring exists                                                 | `error: 404` → `ERR`                    |
-| `replace_with_random_digits`| Replace with random digits of fixed length                                  | `11111` → `80239`                       |
-| `sequential_numeric`        | Sequential numeric pseudonyms with optional prefix                          | `Alice, Bob` → `ID1, ID2`               |
-| `sequential_alpha`          | Sequential alphabetic pseudonyms with optional prefix                       | `Alice, Bob` → `REFA, REFB`             |
-| `truncate`                  | Truncate strings to fixed length                                            | `Alexander` → `Alex`                    |
-| `initials_only`             | Convert names to initials                                                   | `John Doe` → `J.D.`                     |
-| `generalize_age`            | Group ages into ranges                                                      | `25` → `20-29`                          |
-| `generalize_date`           | Reduce granularity (year or month-year)                                     | `2025-07-20` → `2025-07`                |
-| `generalize_number_range`   | Bucketize numbers by interval                                               | `23` → `20-29`                          |
-| `random_choice`             | Randomly pick value from a list                                             | `SP` → `RJ` / `MG`                      |
-| `shuffle`                   | Shuffle column values                                                       | `[A,B,C]` → `[B,C,A]`                   |
-| `date_offset`               | Apply random offset within day range                                        | `2025-07-20` → `2025-07-18`             |
-| `coalesce_cols`             | Take first non-null from multiple columns                                   | `(None, Y)` → `Y`                       |
-| `round_number`              | Round numeric values to fixed decimals                                      | `3.14159` → `3.14`                      |
-| `round_date`                | Round date down to month or year start                                      | `2025-07-29` → `2025-07-01`             |
+| Method                                           | Description                                                                 | Example Input → Output                  |
+|--------------------------------------------------|-----------------------------------------------------------------------------|-----------------------------------------|
+| [`full_mask`](examples/masking/full_mask.py)     | Fixed mask or literal; supports `char`, `len`, `mask_literal`, `match_length`, `preserve_nulls`. | `12345` → `*****` / `XXXXXXXX` / `REDACTED` |
+| [`mask_email`](examples/masking/mask_email.py)   | Masks local part; supports `mask`, `fallback_domain`, `preserve_nulls`.    | `john@example.com` → `xxxxx@example.com` |
+| [`mask_number`](examples/masking/mask_number.py) | Keep first N digits, then mask the rest (configurable `keep`, `mask`, `len`, `preserve_nulls`) | `123456789` → `123*****` <br> `98765` + `keep=2, mask="X"` → `98XXX` <br> `42` + `keep=2, len=4, mask="#"` → `42####` |
+| `mask_partial`                                   | Show start & end, mask the middle                                           | `abcdef` → `a****f`                     |
+| `replace_with_value`                             | Replace with a static value                                                 | `NY` → `Unknown`                        |
+| `replace_exact`                                  | Replace exact matches by mapping                                            | `active` → `A`                          |
+| `replace_by_contains`                            | Replace if substring exists                                                 | `error: 404` → `ERR`                    |
+| `replace_with_random_digits`                     | Replace with random digits of fixed length                                  | `11111` → `80239`                       |
+| `sequential_numeric`                             | Sequential numeric pseudonyms with optional prefix                          | `Alice, Bob` → `ID1, ID2`               |
+| `sequential_alpha`                               | Sequential alphabetic pseudonyms with optional prefix                       | `Alice, Bob` → `REFA, REFB`             |
+| `truncate`                                       | Truncate strings to fixed length                                            | `Alexander` → `Alex`                    |
+| `initials_only`                                  | Convert names to initials                                                   | `John Doe` → `J.D.`                     |
+| `generalize_age`                                 | Group ages into ranges                                                      | `25` → `20-29`                          |
+| `generalize_date`                                | Reduce granularity (year or month-year)                                     | `2025-07-20` → `2025-07`                |
+| `generalize_number_range`                        | Bucketize numbers by interval                                               | `23` → `20-29`                          |
+| `random_choice`                                  | Randomly pick value from a list                                             | `SP` → `RJ` / `MG`                      |
+| `shuffle`                                        | Shuffle column values                                                       | `[A,B,C]` → `[B,C,A]`                   |
+| `date_offset`                                    | Apply random offset within day range                                        | `2025-07-20` → `2025-07-18`             |
+| `coalesce_cols`                                  | Take first non-null from multiple columns                                   | `(None, Y)` → `Y`                       |
+| `round_number`                                   | Round numeric values to fixed decimals                                      | `3.14159` → `3.14`                      |
+| `round_date`                                     | Round date down to month or year start                                      | `2025-07-29` → `2025-07-01`             |
 
 ---
 
