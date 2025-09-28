@@ -110,18 +110,23 @@ class AnonymizationMethods:
     @staticmethod
     def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces all values in the specified column with a static value.
+        Replace all values in the column with a static value.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be replaced.
-            params (dict): Dictionary containing the key "value" with the replacement string.
-                           If not provided, defaults to "Unknown".
-
-        Returns:
-            pl.Expr: An expression that replaces all values with the specified static value.
+        Required:
+          - value: Any scalar (str/int/float/bool/...).
+        Optional:
+          - preserve_nulls: bool = False  # if True, keeps nulls unchanged
         """
-        return pl.lit(params.get("value", "Unknown")).alias(col)
+        if "value" not in params:
+            raise ValueError("replace_with_value: 'value' parameter is required")
+
+        value = params["value"]
+        preserve_nulls = bool(params.get("preserve_nulls", False))
+
+        expr = pl.lit(value)
+        if preserve_nulls:
+            expr = pl.when(pl.col(col).is_null()).then(None).otherwise(expr)
+        return expr.alias(col)
 
     @staticmethod
     def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
