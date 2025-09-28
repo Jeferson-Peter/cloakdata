@@ -132,31 +132,45 @@ class AnonymizationMethods:
     def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
         Replace values in `col` when they CONTAIN given substrings.
-        Uses `pl.fold` to accumulate the transformations.
+
+        Notes:
+          - Literal substring matching by default (no regex).
+          - Rules are applied in order; first match wins.
+          - Nulls are preserved.
+
+        Params:
+          - mapping: dict[str, str]  # substring -> replacement
+          - substr + replacement: convenience for single mapping
+          - case_sensitive: bool = True
+          - use_regex: bool = False
         """
-        mapping = params.get("mapping") or {
-            params.get("substr", ""): params.get("replacement", "Unknown")
-        }
+        mapping = params.get("mapping")
+        if not mapping:
+            substr = params.get("substr")
+            if not substr:
+                raise ValueError(
+                    "replace_by_contains: provide 'mapping' or ('substr' + 'replacement')."
+                )
+            mapping = {substr: params.get("replacement", "")}
 
-        base = pl.col(col).cast(pl.Utf8)
+        case_sensitive = bool(params.get("case_sensitive", True))
+        use_regex = bool(params.get("use_regex", False))
 
-        pairs = [
-            pl.struct(pl.lit(sub).alias("sub"), pl.lit(rep).alias("rep"))
-            for sub, rep in mapping.items()
-        ]
+        s = pl.col(col).cast(pl.Utf8)
+        acc = s
 
-        # noinspection PyTypeChecker
-        expr = pl.fold(
-            acc=base,
-            function=lambda acc, pair: pl.when(
-                acc.str.contains(pair.struct.field("sub")).fill_null(False)
-            )
-            .then(pair.struct.field("rep"))
-            .otherwise(acc),
-            exprs=pairs,
-        )
+        for sub, rep in mapping.items():
+            pattern = sub if use_regex else sub
+            cond = acc.str.contains(pattern, literal=not use_regex).fill_null(False)
 
-        return expr.alias(col)
+            if not case_sensitive and not use_regex:
+                cond = (
+                    acc.str.to_lowercase().str.contains(sub.lower(), literal=True).fill_null(False)
+                )
+
+            acc = pl.when(cond).then(pl.lit(rep)).otherwise(acc)
+
+        return acc.alias(col)
 
     @staticmethod
     def replace_exact(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
