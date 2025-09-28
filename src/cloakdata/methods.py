@@ -78,22 +78,34 @@ class AnonymizationMethods:
         return expr.alias(col)
 
     @staticmethod
-    def mask_number(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def mask_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Masks part of a numeric string in the specified column, keeping the first few characters.
+        Masks part of a numeric string, preserving the first `keep` characters.
 
-        Example:
-            "123456789" → "123*****"
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be masked.
-            _params (dict): Parameters dictionary (not used in this method).
-
-        Returns:
-            pl.Expr: An expression that preserves the first 3 characters and masks the rest.
+        params (optional):
+          - keep: int = 3                  # how many leading chars to preserve
+          - mask: str = "*"                # mask character
+          - len: int | None = None         # fixed number of mask chars (else: fill the rest)
+          - preserve_nulls: bool = True    # keep nulls untouched
         """
-        return (pl.col(col).cast(pl.Utf8).str.slice(0, 3) + pl.lit("*****")).alias(col)
+        s = pl.col(col).cast(pl.Utf8)
+        keep = int(params.get("keep", 3))
+        mask_char = str(params.get("mask", "*"))
+        mask_len = params.get("len")  # None -> dynamic
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+
+        prefix = s.str.slice(0, keep)
+
+        if mask_len is not None:
+            # fixed number of mask chars
+            mask_expr = pl.lit(mask_char * int(mask_len))
+        else:
+            # dynamic: mask everything after the first `keep` chars
+            rest = s.str.slice(keep)  # empty if length <= keep; null stays null
+            mask_expr = rest.str.replace_all(r".", mask_char, literal=False)
+
+        core = prefix + mask_expr
+        return pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
 
     @staticmethod
     def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
