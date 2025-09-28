@@ -17,7 +17,7 @@ def test_full_mask_default_preserves_nulls(city_df, cfg_factory):
 
 def test_full_mask_fixed_custom(city_df, cfg_factory):
     """Masks non-nulls with a fixed custom literal and keeps nulls untouched."""
-    cfg = cfg_factory("full_mask", "city", params={"char": "X", "len": 8})
+    cfg = cfg_factory("full_mask", "city", char="X", len=8)
     out = anonymize(city_df, cfg)
 
     non_null = city_df["city"].is_not_null()
@@ -29,7 +29,7 @@ def test_full_mask_fixed_custom(city_df, cfg_factory):
 
 def test_full_mask_literal(city_df, cfg_factory):
     """Uses mask_literal for non-nulls and preserves nulls."""
-    cfg = cfg_factory("full_mask", "city", params={"mask_literal": "REDACTED"})
+    cfg = cfg_factory("full_mask", "city", mask_literal="REDACTED")
     out = anonymize(city_df, cfg)
 
     non_null = city_df["city"].is_not_null()
@@ -41,7 +41,7 @@ def test_full_mask_literal(city_df, cfg_factory):
 
 def test_full_mask_dynamic_match_length(city_df, cfg_factory):
     """Produces masks with the same length as the original using the chosen char."""
-    cfg = cfg_factory("full_mask", "city", params={"match_length": True, "char": "#"})
+    cfg = cfg_factory("full_mask", "city", match_length=True, char="#")
     out = anonymize(city_df, cfg)
 
     orig = city_df["city"]
@@ -59,7 +59,7 @@ def test_full_mask_dynamic_match_length(city_df, cfg_factory):
 
 def test_full_mask_overwrite_nulls(city_df, cfg_factory):
     """When preserve_nulls=False, every value becomes the fixed mask."""
-    cfg = cfg_factory("full_mask", "city", params={"preserve_nulls": False})
+    cfg = cfg_factory("full_mask", "city", preserve_nulls=False)
     out = anonymize(city_df, cfg)
 
     assert (out["city"] == "*****").all()
@@ -67,7 +67,7 @@ def test_full_mask_overwrite_nulls(city_df, cfg_factory):
 
 def test_full_mask_idempotent(city_df, cfg_factory):
     """Applying the same config twice yields the same series."""
-    cfg = cfg_factory("full_mask", "city", params={"match_length": True, "char": "*"})
+    cfg = cfg_factory("full_mask", "city", match_length=True, char="*")
     out1 = anonymize(city_df, cfg)
     out2 = anonymize(out1, cfg)
     assert out1["city"].to_list() == out2["city"].to_list()
