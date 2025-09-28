@@ -9,52 +9,74 @@ class AnonymizationMethods:
     """
     A collection of static methods for anonymizing or masking sensitive data in Polars DataFrames.
 
-    This class provides various anonymization strategies such as full masking, email obfuscation,
+    This class provides various anonymization strategies such as full -masking, email obfuscation,
     data generalization, conditional replacement, pseudonymization, and more.
 
     Each method returns a `pl.Expr` that can be applied to a column in a Polars DataFrame.
     """
 
     @staticmethod
-    def full_mask(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Fully masks all values in the specified column with a fixed placeholder.
+        Fully masks values with a minimal config surface.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be masked.
-            _params (dict): Parameters dictionary (not used in this method).
-
-        Returns:
-            pl.Expr: An expression that replaces all values in the column with "*****".
+        params (optional):
+          - char: str = "*"
+          - len: int = 5
+          - mask_literal: str | None = None   # if present, it wins
+          - match_length: bool = False        # repeats `char` to original length
+          - preserve_nulls: bool = True
         """
-        return pl.lit("*****").alias(col)
+        params = params.get("params", {})
+        s = pl.col(col).cast(pl.Utf8)
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+        char = str(params.get("char", "*"))
+        length_fixed = int(params.get("len", 5))
+        mask_literal = params.get("mask_literal")
+        match_length = bool(params.get("match_length", False))
+
+        if mask_literal is not None:
+            core = pl.lit(str(mask_literal))
+        elif match_length:
+            core = s.str.replace_all(r".", char, literal=False)
+        else:
+            core = pl.lit(char * length_fixed)
+
+        expr = pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
+        return expr
 
     @staticmethod
-    def mask_email(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def mask_email(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Masks the local part of email addresses in the specified column, keeping the domain.
-
-        Example:
-            "john.doe@example.com" → "xxxxx@example.com"
-            "invalid_email" → "xxxxx@hidden.com"
+        Masks the local part of email addresses, keeping or replacing the domain.
 
         Parameters:
             _df (pl.DataFrame): The input DataFrame (not used in this method).
             col (str): The name of the column containing email addresses.
-            _params (dict): Parameters dictionary (not used in this method).
+            params (dict, optional): {
+                "mask": str = "xxxxx",           # replacement for the local part
+                "fallback_domain": str = "hidden.com",  # used when input is not a valid email
+                "preserve_nulls": bool = True    # if False, replace nulls with mask@fallback_domain
+            }
 
         Returns:
-            pl.Expr: An expression that masks email addresses while preserving the domain.
+            pl.Expr: An expression masking email addresses while preserving domain.
         """
-        return (
-            pl.when(pl.col(col).is_null())
-            .then(pl.lit(None))
-            .when(pl.col(col).str.contains("@"))
-            .then(pl.lit("xxxxx@") + pl.col(col).str.split("@").list.get(1))
-            .otherwise(pl.lit("xxxxx@hidden.com"))
-            .alias(col)
+        s = pl.col(col).cast(pl.Utf8)
+        mask = params.get("mask", "xxxxx")
+        fallback_domain = params.get("fallback_domain", "hidden.com")
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+
+        masked = s.str.replace(r"^[^@]+@", mask + "@", literal=False)
+
+        expr = (
+            pl.when(s.is_null())
+            .then(pl.lit(None) if preserve_nulls else pl.lit(f"{mask}@{fallback_domain}"))
+            .when(s.str.contains("@"))
+            .then(masked)
+            .otherwise(pl.lit(f"{mask}@{fallback_domain}"))
         )
+        return expr.alias(col)
 
     @staticmethod
     def mask_number(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
