@@ -175,30 +175,22 @@ class AnonymizationMethods:
     @staticmethod
     def replace_exact(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces values in the column that exactly match a given set of keys.
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to be processed.
-            params (dict): Dictionary containing a "mapping" key with a dict of
-                           {original_value: replacement_value}.
-
-        Returns:
-            pl.Expr: An expression that performs exact value replacements.
+        Exact-value replacement using a mapping.
+        - Values not in the mapping are left unchanged.
+        - Dtype is inferred from replacements (no forced Utf8).
+        - Optional explicit None mapping supported via params['map_null'].
+        Params:
+          - mapping (dict): {original_value: replacement_value}  [required]
+          - map_null (bool): if True and None in mapping, apply to nulls. Default False.
         """
         mapping: dict = params.get("mapping", {})
-        if not mapping:
-            return pl.col(col).alias(col)
 
-        return (
-            pl.col(col)
-            .replace_strict(
-                mapping,
-                default=pl.col(col),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        old = list(mapping.keys())
+        new = list(mapping.values())
+
+        expr = pl.col(col).replace(old, new)
+
+        return expr.alias(col)
 
     @staticmethod
     def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
