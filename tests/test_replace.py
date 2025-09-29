@@ -9,6 +9,7 @@ EXPECTED_DIGITS = 8
 
 
 def test_replace_exact(city_df, cfg_factory):
+    """Replaces values that exactly match mapping keys, leaves others unchanged."""
     cfg = cfg_factory("replace_exact", "city", mapping={"Curitiba": "CWB"})
     out = anonymize(city_df, cfg)
     assert out["city"].to_list() == ["CWB", "Joinville", "São Paulo"]
