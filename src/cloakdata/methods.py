@@ -216,7 +216,6 @@ class AnonymizationMethods:
         }
 
         expr = pl.col(col).replace(list(mapping.keys()), list(mapping.values()))
-        # chave: se não há prefixo (None), queremos inteiros de verdade
         if prefix is None:
             expr = expr.cast(pl.Int64)
         return expr.alias(col)
@@ -224,20 +223,15 @@ class AnonymizationMethods:
     @staticmethod
     def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces unique values in the column with alphabetically indexed pseudonyms.
+        Replace unique values in the column with alphabetically indexed labels.
+        Repeated values receive the same label. Order follows first appearance.
 
         Example:
             "Alice", "Bob", "Alice" → "val A", "val B", "val A"
 
-        Parameters:
-            df (pl.DataFrame): The input DataFrame, used to extract unique values.
-            col (str): The name of the column to be pseudonymized.
-            params (dict): Optional parameters:
-                - "prefix" (str): A prefix to add to the generated values (default: "val").
-
-        Returns:
-            pl.Expr: An expression replacing values with alphabetic pseudonyms
-            (A, B, ..., Z, AA, AB, ...).
+        Params:
+          - start (str, default="A"): starting label ("A", "Z", "AA", ...)
+          - prefix (str | None, default="val"): optional prefix; None → no prefix
         """
 
         def alpha_to_num(s: str) -> int:
@@ -258,19 +252,19 @@ class AnonymizationMethods:
             return out
 
         params = params or {}
-        start_letter = params.get("start", "A")
-        offset = alpha_to_num(start_letter)
-        prefix = params.get("prefix")
+        start_label = params.get("start", "A")
+        start_idx = alpha_to_num(start_label)
+        prefix = params.get("prefix", "val")
 
-        idx = pl.arange(pl.lit(0), pl.len())
-        ordinal = idx + offset
+        uniques = df.select(pl.col(col)).unique(maintain_order=True).to_series().to_list()
 
-        letters = ordinal.map_elements(lambda k: num_to_alpha(int(k)), return_dtype=pl.Utf8)
+        labels = [
+            f"{prefix} {num_to_alpha(idx)}" if prefix is not None else num_to_alpha(idx)
+            for idx, _ in enumerate(uniques, start=start_idx)
+        ]
 
-        if prefix is None:
-            return letters.alias(col)
-        else:
-            return pl.format(f"{prefix} {{}}", letters).alias(col)
+        mapping = dict(zip(uniques, labels, strict=False))
+        return pl.col(col).replace(list(mapping.keys()), list(mapping.values())).alias(col)
 
     @staticmethod
     def truncate(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
