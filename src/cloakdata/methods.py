@@ -195,29 +195,31 @@ class AnonymizationMethods:
     @staticmethod
     def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces unique values in the column with sequentially numbered strings.
+        Replace unique values in the column with sequentially numbered labels.
+        Repeated values get the same pseudonym.
 
         Example:
             "Alice", "Bob", "Alice" → "val 1", "val 2", "val 1"
 
-        Parameters:
-            df (pl.DataFrame): The input DataFrame, used to extract unique values.
-            col (str): The name of the column to be pseudonymized.
-            params (dict): Optional parameters:
-                - "prefix" (str): A prefix to add to the generated values (default: "val").
-
-        Returns:
-            pl.Expr: An expression replacing values with numeric pseudonyms.
+        Params:
+          - start (int, default=1): starting number
+          - prefix (str | None, default="val"): optional prefix for labels
         """
         params = params or {}
         start = int(params.get("start", 1))
-        prefix = params.get("prefix")
-        seq = pl.arange(pl.lit(start), pl.len() + start)
+        prefix = params.get("prefix", "val")
 
-        if not prefix:
-            return seq.alias(col)
-        else:
-            return pl.format(f"{prefix} {{}}", seq).alias(col)
+        uniques = df.select(col).unique().to_series()
+        mapping = {
+            val: (f"{prefix} {i}" if prefix is not None else i)
+            for i, val in enumerate(uniques.to_list(), start=start)
+        }
+
+        expr = pl.col(col).replace(list(mapping.keys()), list(mapping.values()))
+        # chave: se não há prefixo (None), queremos inteiros de verdade
+        if prefix is None:
+            expr = expr.cast(pl.Int64)
+        return expr.alias(col)
 
     @staticmethod
     def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
