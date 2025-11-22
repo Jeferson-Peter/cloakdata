@@ -195,29 +195,30 @@ class AnonymizationMethods:
     @staticmethod
     def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replace unique values in the column with sequentially numbered labels.
-        Repeated values get the same pseudonym.
-
-        Example:
-            "Alice", "Bob", "Alice" → "val 1", "val 2", "val 1"
+        Replace unique values with sequential numeric labels.
+        Duplicates get the same pseudonym.
 
         Params:
-          - start (int, default=1): starting number
-          - prefix (str | None, default="val"): optional prefix for labels
+          - start (int, default=1)
+          - prefix (str | None, default="val")
+            * None -> retorna inteiros reais (dtype Int64)
+            * string -> retorna rótulos de texto (dtype Utf8)
         """
         params = params or {}
         start = int(params.get("start", 1))
         prefix = params.get("prefix", "val")
 
-        uniques = df.select(col).unique().to_series()
-        mapping = {
-            val: (f"{prefix} {i}" if prefix is not None else i)
-            for i, val in enumerate(uniques.to_list(), start=start)
-        }
+        uniq_s = df.select(pl.col(col)).unique().to_series()
 
-        expr = pl.col(col).replace(list(mapping.keys()), list(mapping.values()))
         if prefix is None:
-            expr = expr.cast(pl.Int64)
+            labels_int = list(range(start, start + len(uniq_s)))
+            mapping = dict(zip(uniq_s.to_list(), labels_int, strict=False))
+            expr = pl.col(col).replace(list(mapping.keys()), list(mapping.values()))
+            return expr.cast(pl.Int64).alias(col)
+
+        old_utf8 = uniq_s.cast(pl.Utf8).to_list()
+        new_utf8 = [f"{prefix} {i}" for i in range(start, start + len(old_utf8))]
+        expr = pl.col(col).cast(pl.Utf8).replace(old_utf8, new_utf8).cast(pl.Utf8)
         return expr.alias(col)
 
     @staticmethod
