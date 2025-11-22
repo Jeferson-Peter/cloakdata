@@ -270,21 +270,31 @@ class AnonymizationMethods:
     @staticmethod
     def truncate(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Truncates string values in the column to a fixed length.
+        Truncate string values in the column to a fixed maximum length.
 
-        Example:
-            "Alexander" with length=4 → "Alex"
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to be truncated.
-            params (dict): Parameters containing:
-                - "length" (int): The maximum number of characters to retain (default: 4).
-
-        Returns:
-            pl.Expr: An expression that truncates each string to the specified length.
+        Params:
+          - length (int, required): number of chars to keep (must be >= 0)
+          - preserve_nulls (bool): keep nulls unchanged (default: True)
         """
-        return pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
+        length = params.get("length", 4)
+        preserve_nulls = params.get("preserve_nulls", True)
+
+        try:
+            length = int(length)
+        except Exception as err:
+            raise ValueError("'length' must be an integer.") from err
+
+        if length < 0:
+            raise ValueError("'length' must be >= 0.")
+
+        s = pl.col(col).cast(pl.Utf8)
+
+        truncated = s.str.slice(0, length)
+
+        if preserve_nulls:
+            return pl.when(s.is_null()).then(None).otherwise(truncated).alias(col)
+
+        return truncated.alias(col)
 
     @staticmethod
     def initials_only(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
