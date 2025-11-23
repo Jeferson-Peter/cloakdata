@@ -1,4 +1,5 @@
 import polars as pl
+import pytest
 
 from cloakdata import anonymize
 
@@ -161,11 +162,72 @@ def test_mask_partial(city_df, cfg_factory):
     assert out["city"][0][-1] == city_df["city"][0][-1]
 
 
-def test_truncate(city_df, cfg_factory):
+def test_truncate_basic(city_df, cfg_factory):
     """Truncates strings to the configured length."""
     cfg = cfg_factory("truncate", "city", length=3)
-    out = anonymize(city_df, cfg)
-    assert out["city"].to_list() == [s[:3] for s in city_df["city"].to_list()]
+    out = anonymize(city_df, cfg)["city"]
+
+    expected = [s[:3] if s is not None else None for s in city_df["city"].to_list()]
+    assert out.to_list() == expected
+
+
+def test_truncate_preserves_nulls(city_df, cfg_factory):
+    """Nulls must remain null (default preserve_nulls=True)."""
+    cfg = cfg_factory("truncate", "city", length=2)
+    out = anonymize(city_df, cfg)["city"]
+
+    null_mask = city_df["city"].is_null()
+    assert out.filter(null_mask).null_count() == null_mask.sum()
+
+
+def test_truncate_no_preserve_nulls(df_factory, cfg_factory):
+    """When preserve_nulls=False, nulls become empty string truncated to ''."""
+    df = df_factory(city=["Porto", None, "Roma"])
+    cfg = cfg_factory("truncate", "city", length=2, preserve_nulls=False)
+
+    out = anonymize(df, cfg)["city"].to_list()
+    assert out == ["Po", None, "Ro"]
+
+
+def test_truncate_zero_length(df_factory, cfg_factory):
+    """length=0 returns empty strings but preserves nulls."""
+    df = df_factory(city=["ABCDE", None, "XYZ"])
+    cfg = cfg_factory("truncate", "city", length=0)
+
+    out = anonymize(df, cfg)["city"].to_list()
+    assert out == ["", None, ""]
+
+
+def test_truncate_works_with_non_string_inputs(df_factory, cfg_factory):
+    """Non-string inputs must be cast to string before truncation."""
+    df = df_factory(col=[12345, True, None, -50])
+    cfg = cfg_factory("truncate", "col", length=3)
+
+    out = anonymize(df, cfg)["col"].to_list()
+    expected = [str(v)[:3] if v is not None else None for v in df["col"].to_list()]
+    assert out == expected
+
+
+def test_truncate_length_validation(df_factory, cfg_factory):
+    """Invalid length values must raise ValueError."""
+    df = df_factory(col=["abc", "def"])
+
+    with pytest.raises(ValueError, match=">= 0"):
+        anonymize(df, cfg_factory("truncate", "col", length=-1))
+
+    with pytest.raises(ValueError, match="integer"):
+        anonymize(df, cfg_factory("truncate", "col", length="abc"))
+
+
+def test_truncate_idempotent(df_factory, cfg_factory):
+    """Applying the same truncate config twice must yield the same result."""
+    df = df_factory(col=["NewYork", "Berlin", None])
+    cfg = cfg_factory("truncate", "col", length=3)
+
+    out1 = anonymize(df, cfg)
+    out2 = anonymize(out1, cfg)
+
+    assert out1["col"].to_list() == out2["col"].to_list()
 
 
 def test_mask_number_default(df_factory, cfg_factory):
