@@ -297,27 +297,46 @@ class AnonymizationMethods:
         return truncated.alias(col)
 
     @staticmethod
-    def initials_only(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def initials_only(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Converts full names into initials. For example, "John Doe" becomes "J.D."
+        Convert names into initials.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing full names.
-            _params (dict): Parameters dictionary (not used in this method).
+        Examples:
+          - "John Doe"          → "J.D."
+          - "Ana   Clara Silva" → "A.C.S."
+          - "Madonna"           → "M."
+          - "   "               → ""
+          - Already-initials like "J.D." stay unchanged.
 
-        Returns:
-            pl.Expr: An expression that converts names to initials format.
+        Rules:
+          - None → None
+          - "" / whitespace → ""
+          - Non-string values are cast to string first.
         """
-        return (
-            pl.col(col)
-            .cast(pl.Utf8)
-            .map_elements(
-                lambda x: "".join([n[0].upper() + "." for n in str(x).split() if n]),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
+        _preserve_nulls = params.get("preserve_nulls", True)
+
+        orig = pl.col(col).cast(pl.Utf8)
+
+        s = orig.fill_null("")
+
+        trimmed = s.str.strip_chars()
+
+        is_initials = trimmed.str.contains(r"^([A-Z]\.)+$", literal=False)
+        is_empty = trimmed.str.len_chars() == 0
+
+        core = trimmed.str.split(" ").list.eval(
+            pl.element().filter(pl.element().str.len_chars() > 0).str.slice(0, 1).str.to_uppercase()
         )
+
+        computed = core.list.join(".") + pl.lit(".")
+
+        initials_body = (
+            pl.when(is_initials).then(trimmed).when(is_empty).then(pl.lit("")).otherwise(computed)
+        )
+
+        result = pl.when(orig.is_null()).then(None).otherwise(initials_body)
+
+        return result.alias(col)
 
     @staticmethod
     def generalize_age(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
