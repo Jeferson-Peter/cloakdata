@@ -7,9 +7,34 @@ def test_generalize_age_decades_basic(df_factory, cfg_factory):
 
     out = anonymize(df, cfg)
     expected = ["20-29", "40-49", "0-9", "0-9", "10-19", "10-19", "20-29", "20-29"]
-    result = out["age"].to_list()
+    assert out["age"].to_list() == expected
 
-    assert result == expected, f"Expected {expected}, got {result}"
+
+def test_generalize_age_preserves_nulls(df_factory, cfg_factory):
+    df = df_factory(age=[25, None, 41])
+    cfg = cfg_factory("generalize_age", "age")
+
+    out = anonymize(df, cfg)["age"].to_list()
+
+    assert out == ["20-29", None, "40-49"]
+
+
+def test_generalize_age_float_input(df_factory, cfg_factory):
+    df = df_factory(age=[25.9, 41.2, 9.99])
+    cfg = cfg_factory("generalize_age", "age")
+
+    out = anonymize(df, cfg)["age"].to_list()
+
+    assert out == ["20-29", "40-49", "0-9"]
+
+
+def test_generalize_age_custom_bucket(df_factory, cfg_factory):
+    df = df_factory(age=[25, 26, 27])
+    cfg = cfg_factory("generalize_age", "age", size=5)
+
+    out = anonymize(df, cfg)["age"].to_list()
+
+    assert out == ["25-29", "25-29", "25-29"]
 
 
 def test_generalize_date_defaults_to_month_year(df_factory, cfg_factory):
