@@ -339,24 +339,42 @@ class AnonymizationMethods:
         return result.alias(col)
 
     @staticmethod
-    def generalize_age(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def generalize_age(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes age values into 10-year intervals.
+        Generalize numeric ages into N-year buckets (default 10-year).
 
-        Example:
-            25 → "20-29"
-            41 → "40-49"
+        Examples (size=10):
+            25  -> "20-29"
+            41  -> "40-49"
+            9   -> "0-9"
+            None stays None
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing age values.
-            _params (dict): Parameters dictionary (not used in this method).
+        Params:
+          - size (int, default=10): bucket width in years (must be > 0)
 
         Returns:
-            pl.Expr: An expression that converts numeric ages into age groups.
+            pl.Expr: Expression mapping each age to a string range "start-end".
         """
-        base = (pl.col(col).cast(pl.Int64) // 10) * 10
-        return (base.cast(pl.Utf8) + pl.lit("-") + (base + 9).cast(pl.Utf8)).alias(col)
+        params = params or {}
+        size = params.get("size", 10)
+
+        try:
+            size = int(size)
+        except Exception as err:
+            raise ValueError("'size' must be an integer.") from err
+
+        if size <= 0:
+            raise ValueError("'size' must be > 0.")
+
+        s = pl.col(col).cast(pl.Int64)
+
+        base = (s // size) * size
+        lower = base
+        upper = base + (size - 1)
+
+        label = lower.cast(pl.Utf8) + pl.lit("-") + upper.cast(pl.Utf8)
+
+        return pl.when(s.is_null()).then(None).otherwise(label).alias(col)
 
     @staticmethod
     def generalize_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
