@@ -379,25 +379,57 @@ class AnonymizationMethods:
     @staticmethod
     def generalize_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes a date column by reducing its granularity (e.g., to month or year).
+        Generalize a date or datetime column by reducing its granularity.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing date strings in "YYYY-MM-DD" format.
-            params (dict): Dictionary containing:
-                - "mode" (str): Either "month_year" to keep "YYYY-MM", or "year" to keep "YYYY".
-                                Defaults to "month_year".
+        Supported modes:
+          - "year"       → "YYYY"
+          - "month"      → "YYYY-MM"
+          - "quarter"    → "YYYY-Q1"
+          - "semester"   → "YYYY-S1"
+          - "week"       → "YYYY-W18"
+          - "date"       → "YYYY-MM-DD"
+          - "datetime"   → ISO datetime format (unchanged granularity)
 
-        Returns:
-            pl.Expr: An expression that truncates the date based on the selected mode.
+        Works with: Date, Datetime, or ISO strings. Nulls preserved.
         """
-        mode = params.get("mode", "month_year")
-        if mode == "month_year":
-            return pl.col(col).str.slice(0, 7).alias(col)
-        elif mode == "year":
-            return pl.col(col).str.slice(0, 4).alias(col)
+
+        mode = params.get("mode", "month")
+
+        orig = pl.col(col)
+
+        dt = orig.cast(pl.Utf8).str.strptime(pl.Datetime, strict=False)
+
+        is_null = orig.is_null()
+
+        if mode == "year":
+            out = dt.dt.truncate("1y").dt.strftime("%Y")
+
+        elif mode == "month":
+            out = dt.dt.truncate("1mo").dt.strftime("%Y-%m")
+
+        elif mode == "quarter":
+            out = dt.dt.truncate("1q").dt.strftime("%Y-Q%q")
+
+        elif mode == "semester":
+            truncated = dt.dt.truncate("6mo")
+            year_str = truncated.dt.strftime("%Y")
+            semester_num = ((dt.dt.month() - 1) // 6 + 1).cast(pl.Utf8)
+
+            out = year_str + pl.lit("-S") + semester_num
+
+        elif mode == "week":
+            out = dt.dt.truncate("1w").dt.strftime("%Y-W%W")
+
+        elif mode == "date":
+            out = dt.dt.strftime("%Y-%m-%d")
+
+        elif mode == "datetime":
+            out = dt.dt.strftime("%Y-%m-%dT%H:%M:%S")
+
         else:
-            return pl.lit("invalid_mode").alias(col)
+            raise ValueError(f"Invalid mode '{mode}' for generalize_date.")
+
+        return pl.when(is_null).then(None).otherwise(out).alias(col)
 
     @staticmethod
     def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
