@@ -434,24 +434,31 @@ class AnonymizationMethods:
     @staticmethod
     def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Substitui cada valor por uma escolha aleatória dentre `choices`.
-        Se `seed` for fornecido em params, o resultado é determinístico.
-        Preserva None.
+        Replace each value with a random choice from a fixed set.
+
+        - Deterministic if `seed` is provided
+        - Preserves nulls
+        - Fully vectorized (no Python row-wise execution)
+
+        Params:
+          - choices (list[str]): possible replacement values
+          - seed (int, optional): deterministic seed
         """
         params = params or {}
         choices = params.get("choices", ["X", "Y"])
-        seed = params.get("seed", None)
+        seed = params.get("seed", 0)
 
-        rng = random.Random(seed) if seed is not None else random
+        if not choices:
+            raise ValueError("'choices' must be a non-empty list")
 
-        return (
-            pl.col(col)
-            .map_elements(
-                lambda v: None if v is None else rng.choice(choices),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        n = len(choices)
+
+        idx = pl.arange(0, pl.len()).hash(seed=seed).abs() % n
+        mapped_expr = pl.lit(choices[-1])
+        for i in range(n - 2, -1, -1):
+            mapped_expr = pl.when(idx == i).then(pl.lit(choices[i])).otherwise(mapped_expr)
+
+        return pl.when(pl.col(col).is_null()).then(None).otherwise(mapped_expr).alias(col)
 
     @staticmethod
     def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
