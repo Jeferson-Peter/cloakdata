@@ -1,3 +1,5 @@
+from datetime import date
+
 from cloakdata import anonymize
 
 MAX_DELTA_DAYS = 3
@@ -36,22 +38,24 @@ def test_round_date_to_year(df_factory, cfg_factory):
 
 def test_date_offset_is_deterministic_and_within_bounds(df_factory, cfg_factory):
     df = df_factory(d=["2024-01-10", "2024-01-20", None])
-    cfg = cfg_factory("date_offset", "d", min_days=1, max_days=3, seed=123)
+    min_days, max_days, seed = 1, 3, 123
+
+    cfg = cfg_factory("date_offset", "d", min_days=min_days, max_days=max_days, seed=seed)
+
     out1 = anonymize(df, cfg)
     out2 = anonymize(df, cfg)
 
     assert out1["d"].to_list() == out2["d"].to_list()
 
-    from datetime import date
-
-    def parse(s):
+    def parse(s: str | None) -> date | None:
         return None if s is None else date.fromisoformat(s)
 
-    pairs = list(zip(df["d"].to_list(), out1["d"].to_list(), strict=False))
-    for orig, new in pairs:
+    for orig, new in zip(df["d"].to_list(), out1["d"].to_list(), strict=False):
         if orig is None:
             assert new is None
-        else:
-            d0, d1 = parse(orig), parse(new)
-            delta = abs((d1 - d0).days)
-            assert 1 <= delta <= MAX_DELTA_DAYS
+            continue
+
+        d0, d1 = parse(orig), parse(new)
+        delta = (d1 - d0).days  # signed
+
+        assert min_days <= delta <= max_days
