@@ -489,21 +489,22 @@ class AnonymizationMethods:
     @staticmethod
     def shuffle(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Randomly shuffles the values in the specified column.
+        Randomly shuffle the values within a column.
 
-        Note:
-            This method preserves the original values but reorders them randomly.
+        - Preserves original values (only reorders)
+        - Preserves nulls
+        - Deterministic if `seed` is provided
+        - Fully vectorized (Polars-native)
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to shuffle.
-            params (dict): Parameters dictionary.
-
-        Returns:
-            pl.Expr: An expression that shuffles the column values.
+        Params:
+          - seed (int, optional): deterministic shuffle seed
         """
         params = params or {}
         seed = params.get("seed")
+
+        if seed is not None and not isinstance(seed, int):
+            raise TypeError("'seed' must be an integer")
+
         return pl.col(col).shuffle(seed=seed).alias(col)
 
     @staticmethod
