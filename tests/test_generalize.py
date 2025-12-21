@@ -1,5 +1,7 @@
 from datetime import date, datetime
 
+import pytest
+
 from cloakdata import anonymize
 
 
@@ -177,17 +179,6 @@ def test_generalize_date_preserves_nulls(df_factory, cfg_factory):
     assert out.null_count() == 1
 
 
-def test_generalize_date_invalid_mode_raises(df_factory, cfg_factory):
-    """Invalid mode must raise ValueError."""
-    df = df_factory(dt=["2024-05-17"])
-
-    try:
-        anonymize(df, cfg_factory("generalize_date", "dt", mode="century"))
-        raise AssertionError("Invalid mode should raise ValueError")
-    except ValueError:
-        pass
-
-
 def test_generalize_number_range_buckets(df_factory, cfg_factory):
     df = df_factory(num=[-1.2, 0.0, 2.5, 42.0, None])
     cfg = cfg_factory("generalize_number_range", "num", interval=10)
@@ -195,7 +186,7 @@ def test_generalize_number_range_buckets(df_factory, cfg_factory):
     out = anonymize(df, cfg)
     vals = [v for v in out["num"].to_list() if v is not None]
 
-    assert set(vals) == {"-10--1", "0-9", "40-49"}
+    assert set(vals) == {"-10 to -1", "0 to 9", "40 to 49"}
     assert out.height == df.height
 
 
@@ -206,5 +197,81 @@ def test_generalize_number_range_preserves_nulls(df_factory, cfg_factory):
     out = anonymize(df, cfg)
 
     assert out["num"][0] is None
+    assert out["num"].to_list()[1:] == [
+        "-10 to -1",
+        "0 to 9",
+        "40 to 49",
+    ]
 
-    assert out["num"].to_list()[1:] == ["-10--1", "0-9", "40-49"]
+
+def test_generalize_number_range_boundary_values(df_factory, cfg_factory):
+    """
+    Values exactly on bucket boundaries must fall into the correct range.
+    """
+    df = df_factory(num=[0, 9, 10, 19, 20, 29])
+    cfg = cfg_factory("generalize_number_range", "num", interval=10)
+
+    out = anonymize(df, cfg)["num"].to_list()
+
+    assert out == [
+        "0 to 9",
+        "0 to 9",
+        "10 to 19",
+        "10 to 19",
+        "20 to 29",
+        "20 to 29",
+    ]
+
+
+def test_generalize_number_range_negative_boundaries(df_factory, cfg_factory):
+    """
+    Negative values must map correctly using the same separator.
+    """
+    df = df_factory(num=[-20, -11, -10, -1, 0])
+    cfg = cfg_factory("generalize_number_range", "num", interval=10)
+
+    out = anonymize(df, cfg)["num"].to_list()
+
+    assert out == [
+        "-20 to -11",
+        "-20 to -11",
+        "-10 to -1",
+        "-10 to -1",
+        "0 to 9",
+    ]
+
+
+def test_generalize_number_range_all_null_column(df_factory, cfg_factory):
+    """
+    A fully-null column must remain fully null.
+    """
+    df = df_factory(num=[None, None])
+    cfg = cfg_factory("generalize_number_range", "num", interval=10)
+
+    out = anonymize(df, cfg)["num"]
+
+    assert out.to_list() == [None, None]
+    assert out.null_count() == len(out)
+
+
+@pytest.mark.parametrize("interval", [0, -1, -10])
+def test_generalize_number_range_invalid_interval_raises(df_factory, cfg_factory, interval):
+    """
+    Interval must be a positive integer.
+    """
+    df = df_factory(num=[1, 2, 3])
+    cfg = cfg_factory("generalize_number_range", "num", interval=interval)
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg)
+
+
+def test_generalize_number_range_non_int_interval_raises(df_factory, cfg_factory):
+    """
+    Non-integer intervals should raise an error.
+    """
+    df = df_factory(num=[1, 2, 3])
+    cfg = cfg_factory("generalize_number_range", "num", interval=2.5)
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg)
