@@ -1,11 +1,12 @@
-import random
-
 import pytest
 from polars import Boolean, Utf8
 
 from cloakdata import anonymize
 
 EXPECTED_DIGITS = 8
+DEFAULT_DIGITS = 11
+NULL_COUNT_TWO = 2
+NULL_COUNT_THREE = 3
 
 
 def test_replace_exact(city_df, cfg_factory):
@@ -118,17 +119,129 @@ def test_replace_with_value_preserves_dtype_and_nulls(df_factory, cfg_factory):
     assert out4.dtype == Utf8
 
 
-def test_replace_with_random_digits_generates_digit_strings(df_factory, cfg_factory):
-    df = df_factory(doc=["123", "456", "789"])
-    cfg = cfg_factory("replace_with_random_digits", "doc", digits=8)
+def test_replace_with_random_digits_default_len_and_nulls(df_factory, cfg_factory):
+    """
+    Default behavior: generates 11-digit strings for non-null values and preserves nulls.
+    """
+    df = df_factory(doc=["a", None, "b", "c", None])
+    cfg = cfg_factory("replace_with_random_digits", "doc")  # digits=11, seed=0 by default
 
-    random.seed(42)
+    out = anonymize(df, cfg)["doc"]
 
-    out = anonymize(df, cfg)
-    values = out["doc"].to_list()
+    assert out.null_count() == NULL_COUNT_TWO
 
-    assert all(
-        len(v) == EXPECTED_DIGITS and v.isdigit() for v in values
-    ), f"Expected 8-digit numeric strings, got {values}"
+    values = out.to_list()
+    for v in values:
+        if v is None:
+            continue
+        assert isinstance(v, str)
+        assert len(v) == DEFAULT_DIGITS
+        assert v.isdigit()
 
-    assert values != df["doc"].to_list(), "Output should not match original values"
+
+def test_replace_with_random_digits_custom_digits(df_factory, cfg_factory):
+    """
+    Custom digits length must be respected for all non-null values.
+    """
+    digits = 5
+    df = df_factory(doc=["x", "y", None])
+    cfg = cfg_factory("replace_with_random_digits", "doc", digits=digits, seed=123)
+
+    out = anonymize(df, cfg)["doc"].to_list()
+
+    assert out[2] is None
+    assert len(out[0]) == digits
+    assert len(out[1]) == digits
+    assert out[0].isdigit()
+    assert out[1].isdigit()
+
+
+def test_replace_with_random_digits_is_deterministic_with_seed(df_factory, cfg_factory):
+    """
+    Same length + same seed + same number of rows must yield the exact same output.
+    (Note: mapping is index-based, not value-based.)
+    """
+    df = df_factory(doc=["a", "b", "c", "d", "e"])
+    cfg = cfg_factory("replace_with_random_digits", "doc", digits=8, seed=42)
+
+    out1 = anonymize(df, cfg)["doc"].to_list()
+    out2 = anonymize(df, cfg)["doc"].to_list()
+
+    assert out1 == out2
+
+
+def test_replace_with_random_digits_diff_seed_changes_output(df_factory, cfg_factory):
+    """
+    Different seeds should generally produce different outputs.
+    """
+    df = df_factory(doc=[f"v{i}" for i in range(30)])
+    cfg1 = cfg_factory("replace_with_random_digits", "doc", digits=10, seed=1)
+    cfg2 = cfg_factory("replace_with_random_digits", "doc", digits=10, seed=2)
+
+    out1 = anonymize(df, cfg1)["doc"].to_list()
+    out2 = anonymize(df, cfg2)["doc"].to_list()
+
+    assert out1 != out2
+
+
+def test_replace_with_random_digits_does_not_depend_on_input_values(df_factory, cfg_factory):
+    """
+    Since mapping is index-based, changing the input values (but keeping the same length)
+    should not change the output for the same seed/digits.
+    """
+    df1 = df_factory(doc=["a", "b", "c", "d", "e"])
+    df2 = df_factory(doc=["xxx", "yyy", "zzz", "www", "vvv"])
+    cfg = cfg_factory("replace_with_random_digits", "doc", digits=6, seed=999)
+
+    out1 = anonymize(df1, cfg)["doc"].to_list()
+    out2 = anonymize(df2, cfg)["doc"].to_list()
+
+    assert out1 == out2
+
+
+def test_replace_with_random_digits_all_null_column(df_factory, cfg_factory):
+    """
+    A fully-null column remains fully-null (no accidental string generation).
+    """
+    df = df_factory(doc=[None, None, None])
+    cfg = cfg_factory("replace_with_random_digits", "doc", digits=7, seed=0)
+
+    out = anonymize(df, cfg)["doc"]
+
+    assert out.null_count() == NULL_COUNT_THREE
+    assert out.to_list() == [None, None, None]
+
+
+@pytest.mark.parametrize("digits", [0, -1, -10])
+def test_replace_with_random_digits_invalid_digits_raises(df_factory, cfg_factory, digits):
+    """
+    digits must be a positive integer.
+    """
+    df = df_factory(doc=["a"])
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg_factory("replace_with_random_digits", "doc", digits=digits))
+
+
+def test_replace_with_random_digits_non_int_digits_raises(df_factory, cfg_factory):
+    """
+    digits must be int (e.g., '11' should raise).
+    """
+    df = df_factory(doc=["a"])
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg_factory("replace_with_random_digits", "doc", digits="11"))
+
+
+def test_replace_with_random_digits_keeps_length_and_utf8(df_factory, cfg_factory):
+    """
+    Output keeps the same length and should be Utf8 dtype.
+    """
+    df = df_factory(doc=["a", None, "b", "c"])
+    cfg = cfg_factory("replace_with_random_digits", "doc", digits=4, seed=0)
+
+    out_df = anonymize(df, cfg)
+    out = out_df["doc"]
+
+    assert out_df.height == df.height
+    assert out.dtype == Utf8
