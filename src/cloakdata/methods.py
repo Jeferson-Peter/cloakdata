@@ -510,20 +510,11 @@ class AnonymizationMethods:
     @staticmethod
     def date_offset(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Applies a random date offset (in days) to each value in the column.
+        Applies a deterministic pseudo-random date offset (in days).
 
-        Example:
-            "2025-07-20" → "2025-07-18" (random within range)
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing date strings (format "YYYY-MM-DD").
-            params (dict): Dictionary containing:
-                - "min_days" (int): Minimum number of days to shift (default: -3).
-                - "max_days" (int): Maximum number of days to shift (default: 3).
-
-        Returns:
-            pl.Expr: An expression that offsets dates randomly within the given range.
+        - Works with ISO strings, Date, or Datetime
+        - Deterministic if `seed` is provided
+        - Preserves nulls
         """
         params = params or {}
         min_days = int(params.get("min_days", 0))
@@ -534,10 +525,14 @@ class AnonymizationMethods:
             min_days, max_days = max_days, min_days
 
         span = (max_days - min_days) + 1
+        if span <= 0:
+            raise ValueError("Invalid date offset range")
 
-        base = pl.col(col).str.strptime(pl.Date, format="%Y-%m-%d", strict=False)
+        orig = pl.col(col)
 
-        idx = pl.arange(0, pl.len(), eager=False).cast(pl.UInt64)
+        base = orig.cast(pl.Utf8).str.strptime(pl.Date, strict=False)
+
+        idx = pl.arange(0, pl.len()).cast(pl.UInt64)
         rnd = idx.hash(seed=seed)
         offset = (rnd % span).cast(pl.Int64) + min_days
 
