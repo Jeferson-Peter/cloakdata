@@ -575,23 +575,36 @@ class AnonymizationMethods:
     @staticmethod
     def generalize_number_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes numeric values into intervals of fixed size (e.g., 0-9, 10-19, etc.).
+        Generalizes numeric values into fixed-size interval buckets.
 
-        Example:
-            Value: 23, interval: 10 → "20-29"
+        Examples:
+            23 → "20-29"
+            -3 → "-10 to -1"
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column with numeric values.
-            params (dict): Dictionary containing:
-                - "interval" (int): Size of each numeric range (default: 10).
+        Notes:
+            - Floats are truncated before bucketing (23.9 → 23)
+            - Null values are preserved
+            - Input must be numeric (not idempotent)
 
-        Returns:
-            pl.Expr: An expression that groups numbers into interval buckets.
+        Params:
+            - interval (int): Size of each numeric bucket (default: 10, must be > 0)
         """
+        params = params or {}
         interval = params.get("interval", 10)
-        base = (pl.col(col).cast(pl.Int64) // interval) * interval
-        return (base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)).alias(col)
+
+        if not isinstance(interval, int) or interval <= 0:
+            raise ValueError("'interval' must be a positive integer")
+
+        orig = pl.col(col)
+        is_null = orig.is_null()
+
+        value = orig.cast(pl.Int64)
+        base = (value // interval) * interval
+        upper = base + interval - 1
+
+        bucket = base.cast(pl.Utf8) + pl.lit(" to ") + upper.cast(pl.Utf8)
+
+        return pl.when(is_null).then(None).otherwise(bucket).alias(col)
 
     @staticmethod
     def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
