@@ -73,6 +73,35 @@ def test_shuffle_handles_nulls(df_factory, cfg_factory):
     assert len(res) == len(orig)
 
 
+def test_shuffle_without_seed_is_permutation(df_factory, cfg_factory):
+    """Without seed, shuffle must still preserve value counts (multiset)."""
+    df = df_factory(city=["A", "B", "B", "C", None, "D"])
+    cfg = cfg_factory("shuffle", "city")  # no seed
+
+    out = anonymize(df, cfg)
+    assert Counter(out["city"].to_list()) == Counter(df["city"].to_list())
+    assert out.height == df.height
+
+
+def test_shuffle_all_nulls_stays_all_nulls(df_factory, cfg_factory):
+    """A fully-null column remains fully-null after shuffle."""
+    df = df_factory(city=[None, None, None])
+    cfg = cfg_factory("shuffle", "city", seed=1)
+
+    out = anonymize(df, cfg)["city"]
+    assert out.null_count() == df.height
+    assert out.to_list() == [None, None, None]
+
+
+def test_shuffle_single_element_is_noop(df_factory, cfg_factory):
+    """Shuffling a single-element column should keep the same value."""
+    df = df_factory(city=["A"])
+    cfg = cfg_factory("shuffle", "city", seed=123)
+
+    out = anonymize(df, cfg)["city"].to_list()
+    assert out == ["A"]
+
+
 def test_random_choice_default_choices_preserves_nulls(df_factory, cfg_factory):
     """
     Uses default choices ['X', 'Y'], keeps nulls as null, and returns only values from choices.
@@ -87,19 +116,6 @@ def test_random_choice_default_choices_preserves_nulls(df_factory, cfg_factory):
     non_null = [v for v in out.to_list() if v is not None]
     assert set(non_null).issubset({"X", "Y"})
     assert len(non_null) == df.height - 2
-
-
-# def test_random_choice_custom_choices(df_factory, cfg_factory):
-#     """
-#     Uses a custom list of choices and guarantees output belongs to that set.
-#     """
-#     df = df_factory(col=["a", "b", "c", "d", "e"])
-#     cfg = cfg_factory("random_choice", "col", choices=["AA", "BB", "CC"])
-#
-#     out = anonymize(df, cfg)["col"].to_list()
-#
-#     assert set(out).issubset({"AA", "BB", "CC"})
-#     assert len(out) == df.height
 
 
 def test_random_choice_deterministic_with_same_seed(df_factory, cfg_factory):
