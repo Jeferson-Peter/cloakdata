@@ -1,5 +1,3 @@
-import random
-import string
 from datetime import datetime
 
 import polars as pl
@@ -463,28 +461,30 @@ class AnonymizationMethods:
     @staticmethod
     def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces each value in the column with a randomly generated fake number (e.g., CPF, ID).
+        Replace each non-null value with a random digit string of fixed length.
 
-        Example:
-            Original: "123456789" → "80239485711" (random 11-digit string)
+        - Deterministic if `seed` is provided
+        - Preserves nulls
+        - Fully vectorized (no Python row-wise execution)
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to anonymize.
-            params (dict): Dictionary containing:
-                - "digits" (int): Number of digits to generate (default: 11).
-
-        Returns:
-            pl.Expr: An expression that replaces values with random digit strings.
+        Params:
+          - digits (int): number of digits to generate (default: 11)
+          - seed (int, optional): deterministic seed
         """
-        return (
-            pl.col(col)
-            .map_elements(
-                lambda _: "".join(random.choices(string.digits, k=params.get("digits", 11))),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        params = params or {}
+        digits = params.get("digits", 11)
+        seed = params.get("seed", 0)
+
+        if not isinstance(digits, int) or digits <= 0:
+            raise ValueError("'digits' must be a positive integer")
+
+        base = pl.arange(0, pl.len()).hash(seed=seed).abs()
+
+        digit_exprs = [((base + i).hash(seed=seed + i) % 10).cast(pl.Utf8) for i in range(digits)]
+
+        random_number = pl.concat_str(digit_exprs)
+
+        return pl.when(pl.col(col).is_null()).then(None).otherwise(random_number).alias(col)
 
     @staticmethod
     def shuffle(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
