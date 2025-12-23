@@ -684,7 +684,7 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that returns rounded date strings.
         """
-        mode = params.get("mode", "day")
+        mode = params.get("mode", "month")
 
         def rounder(s: str) -> str:
             try:
