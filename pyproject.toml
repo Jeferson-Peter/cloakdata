@@ -13,8 +13,8 @@ authors = [{ name = "Jeferson Peter" }]
 keywords = ["anonymization", "privacy", "polars", "masking"]
 
 dependencies = [
-  "polars>=1.31.0",
   "loguru>=0.7.3",
+  "polars>=1.36.1",
 ]
 
 classifiers = [

@@ -10,12 +10,14 @@
 
 ---
 
-## 🧾 What’s New (1.1.1)
+## 🧾 What’s New (2.0.0)
 
-- ✅ Added configurable params for `full_mask`: `char`, `len`, `mask_literal`, `match_length`, `preserve_nulls`.
-- ✅ Added configurable params for `mask_email`: `mask`, `fallback_domain`, `preserve_nulls`.
-- ✅ Moved detailed method examples into [examples/](examples).
-
+- 🔧 Improved all masking and transformation methods for consistency and safety.
+- ✨ Standardized method signatures to return `pl.Expr` for better composability.
+- 🗓️ Added `round_date` to round dates to month or year start.
+- 🛡️ Improved parameter handling (defaults, null-safety, predictable behavior).
+- 🧪 Refactored and validated tests to ensure stability across changes.
+- 📚 Improved documentation and moved detailed examples into [examples/](examples).
 ---
 
 ## ✨ Features
