@@ -1,5 +1,3 @@
-import random
-import string
 from datetime import datetime
 
 import polars as pl
@@ -9,189 +7,230 @@ class AnonymizationMethods:
     """
     A collection of static methods for anonymizing or masking sensitive data in Polars DataFrames.
 
-    This class provides various anonymization strategies such as full masking, email obfuscation,
+    This class provides various anonymization strategies such as full -masking, email obfuscation,
     data generalization, conditional replacement, pseudonymization, and more.
 
     Each method returns a `pl.Expr` that can be applied to a column in a Polars DataFrame.
     """
 
     @staticmethod
-    def full_mask(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Fully masks all values in the specified column with a fixed placeholder.
+        Fully masks values with a minimal config surface.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be masked.
-            _params (dict): Parameters dictionary (not used in this method).
-
-        Returns:
-            pl.Expr: An expression that replaces all values in the column with "*****".
+        params (optional):
+          - char: str = "*"
+          - len: int = 5
+          - mask_literal: str | None = None   # if present, it wins
+          - match_length: bool = False        # repeats `char` to original length
+          - preserve_nulls: bool = True
         """
-        return pl.lit("*****").alias(col)
+        s = pl.col(col).cast(pl.Utf8)
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+        char = str(params.get("char", "*"))
+        length_fixed = int(params.get("len", 5))
+        mask_literal = params.get("mask_literal")
+        match_length = bool(params.get("match_length", False))
+
+        if mask_literal is not None:
+            core = pl.lit(str(mask_literal))
+        elif match_length:
+            core = s.str.replace_all(r".", char, literal=False)
+        else:
+            core = pl.lit(char * length_fixed)
+
+        expr = pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
+        return expr
 
     @staticmethod
-    def mask_email(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def mask_email(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Masks the local part of email addresses in the specified column, keeping the domain.
-
-        Example:
-            "john.doe@example.com" → "xxxxx@example.com"
-            "invalid_email" → "xxxxx@hidden.com"
+        Masks the local part of email addresses, keeping or replacing the domain.
 
         Parameters:
             _df (pl.DataFrame): The input DataFrame (not used in this method).
             col (str): The name of the column containing email addresses.
-            _params (dict): Parameters dictionary (not used in this method).
+            params (dict, optional): {
+                "mask": str = "xxxxx",           # replacement for the local part
+                "fallback_domain": str = "hidden.com",  # used when input is not a valid email
+                "preserve_nulls": bool = True    # if False, replace nulls with mask@fallback_domain
+            }
 
         Returns:
-            pl.Expr: An expression that masks email addresses while preserving the domain.
+            pl.Expr: An expression masking email addresses while preserving domain.
         """
-        return (
-            pl.when(pl.col(col).is_null())
-            .then(pl.lit(None))
-            .when(pl.col(col).str.contains("@"))
-            .then(pl.lit("xxxxx@") + pl.col(col).str.split("@").list.get(1))
-            .otherwise(pl.lit("xxxxx@hidden.com"))
-            .alias(col)
+        s = pl.col(col).cast(pl.Utf8)
+        mask = params.get("mask", "xxxxx")
+        fallback_domain = params.get("fallback_domain", "hidden.com")
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+
+        masked = s.str.replace(r"^[^@]+@", mask + "@", literal=False)
+
+        expr = (
+            pl.when(s.is_null())
+            .then(pl.lit(None) if preserve_nulls else pl.lit(f"{mask}@{fallback_domain}"))
+            .when(s.str.contains("@"))
+            .then(masked)
+            .otherwise(pl.lit(f"{mask}@{fallback_domain}"))
         )
+        return expr.alias(col)
 
     @staticmethod
-    def mask_number(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def mask_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Masks part of a numeric string in the specified column, keeping the first few characters.
+        Masks part of a numeric string, preserving the first `keep` characters.
 
-        Example:
-            "123456789" → "123*****"
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be masked.
-            _params (dict): Parameters dictionary (not used in this method).
-
-        Returns:
-            pl.Expr: An expression that preserves the first 3 characters and masks the rest.
+        params (optional):
+          - keep: int = 3                  # how many leading chars to preserve
+          - mask: str = "*"                # mask character
+          - len: int | None = None         # fixed number of mask chars (else: fill the rest)
+          - preserve_nulls: bool = True    # keep nulls untouched
         """
-        return (pl.col(col).cast(pl.Utf8).str.slice(0, 3) + pl.lit("*****")).alias(col)
+        s = pl.col(col).cast(pl.Utf8)
+        keep = int(params.get("keep", 3))
+        mask_char = str(params.get("mask", "*"))
+        mask_len = params.get("len")  # None -> dynamic
+        preserve_nulls = bool(params.get("preserve_nulls", True))
+
+        prefix = s.str.slice(0, keep)
+
+        if mask_len is not None:
+            # fixed number of mask chars
+            mask_expr = pl.lit(mask_char * int(mask_len))
+        else:
+            # dynamic: mask everything after the first `keep` chars
+            rest = s.str.slice(keep)  # empty if length <= keep; null stays null
+            mask_expr = rest.str.replace_all(r".", mask_char, literal=False)
+
+        core = prefix + mask_expr
+        return pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
 
     @staticmethod
     def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces all values in the specified column with a static value.
+        Replace all values in the column with a static value.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used in this method).
-            col (str): The name of the column to be replaced.
-            params (dict): Dictionary containing the key "value" with the replacement string.
-                           If not provided, defaults to "Unknown".
-
-        Returns:
-            pl.Expr: An expression that replaces all values with the specified static value.
+        Required:
+          - value: Any scalar (str/int/float/bool/...).
+        Optional:
+          - preserve_nulls: bool = False  # if True, keeps nulls unchanged
         """
-        return pl.lit(params.get("value", "Unknown")).alias(col)
+        if "value" not in params:
+            raise ValueError("replace_with_value: 'value' parameter is required")
+
+        value = params["value"]
+        preserve_nulls = bool(params.get("preserve_nulls", False))
+
+        expr = pl.lit(value)
+        if preserve_nulls:
+            expr = pl.when(pl.col(col).is_null()).then(None).otherwise(expr)
+        return expr.alias(col)
 
     @staticmethod
     def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
         Replace values in `col` when they CONTAIN given substrings.
-        Uses `pl.fold` to accumulate the transformations.
+
+        Notes:
+          - Literal substring matching by default (no regex).
+          - Rules are applied in order; first match wins.
+          - Nulls are preserved.
+
+        Params:
+          - mapping: dict[str, str]  # substring -> replacement
+          - substr + replacement: convenience for single mapping
+          - case_sensitive: bool = True
+          - use_regex: bool = False
         """
-        mapping = params.get("mapping") or {
-            params.get("substr", ""): params.get("replacement", "Unknown")
-        }
+        mapping = params.get("mapping")
+        if not mapping:
+            substr = params.get("substr")
+            if not substr:
+                raise ValueError(
+                    "replace_by_contains: provide 'mapping' or ('substr' + 'replacement')."
+                )
+            mapping = {substr: params.get("replacement", "")}
 
-        base = pl.col(col).cast(pl.Utf8)
+        case_sensitive = bool(params.get("case_sensitive", True))
+        use_regex = bool(params.get("use_regex", False))
 
-        pairs = [
-            pl.struct(pl.lit(sub).alias("sub"), pl.lit(rep).alias("rep"))
-            for sub, rep in mapping.items()
-        ]
+        s = pl.col(col).cast(pl.Utf8)
+        acc = s
 
-        # noinspection PyTypeChecker
-        expr = pl.fold(
-            acc=base,
-            function=lambda acc, pair: pl.when(
-                acc.str.contains(pair.struct.field("sub")).fill_null(False)
-            )
-            .then(pair.struct.field("rep"))
-            .otherwise(acc),
-            exprs=pairs,
-        )
+        for sub, rep in mapping.items():
+            pattern = sub if use_regex else sub
+            cond = acc.str.contains(pattern, literal=not use_regex).fill_null(False)
 
-        return expr.alias(col)
+            if not case_sensitive and not use_regex:
+                cond = (
+                    acc.str.to_lowercase().str.contains(sub.lower(), literal=True).fill_null(False)
+                )
+
+            acc = pl.when(cond).then(pl.lit(rep)).otherwise(acc)
+
+        return acc.alias(col)
 
     @staticmethod
     def replace_exact(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces values in the column that exactly match a given set of keys.
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to be processed.
-            params (dict): Dictionary containing a "mapping" key with a dict of
-                           {original_value: replacement_value}.
-
-        Returns:
-            pl.Expr: An expression that performs exact value replacements.
+        Exact-value replacement using a mapping.
+        - Values not in the mapping are left unchanged.
+        - Dtype is inferred from replacements (no forced Utf8).
+        - Optional explicit None mapping supported via params['map_null'].
+        Params:
+          - mapping (dict): {original_value: replacement_value}  [required]
+          - map_null (bool): if True and None in mapping, apply to nulls. Default False.
         """
         mapping: dict = params.get("mapping", {})
-        if not mapping:
-            return pl.col(col).alias(col)
 
-        return (
-            pl.col(col)
-            .replace_strict(
-                mapping,
-                default=pl.col(col),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        old = list(mapping.keys())
+        new = list(mapping.values())
+
+        expr = pl.col(col).replace(old, new)
+
+        return expr.alias(col)
 
     @staticmethod
     def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces unique values in the column with sequentially numbered strings.
+        Replace unique values with sequential numeric labels.
+        Duplicates get the same pseudonym.
 
-        Example:
-            "Alice", "Bob", "Alice" → "val 1", "val 2", "val 1"
-
-        Parameters:
-            df (pl.DataFrame): The input DataFrame, used to extract unique values.
-            col (str): The name of the column to be pseudonymized.
-            params (dict): Optional parameters:
-                - "prefix" (str): A prefix to add to the generated values (default: "val").
-
-        Returns:
-            pl.Expr: An expression replacing values with numeric pseudonyms.
+        Params:
+          - start (int, default=1)
+          - prefix (str | None, default="val")
+            * None -> retorna inteiros reais (dtype Int64)
+            * string -> retorna rótulos de texto (dtype Utf8)
         """
         params = params or {}
         start = int(params.get("start", 1))
-        prefix = params.get("prefix")
-        seq = pl.arange(pl.lit(start), pl.len() + start)
+        prefix = params.get("prefix", "val")
 
-        if not prefix:
-            return seq.alias(col)
-        else:
-            return pl.format(f"{prefix} {{}}", seq).alias(col)
+        uniq_s = df.select(pl.col(col)).unique().to_series()
+
+        if prefix is None:
+            labels_int = list(range(start, start + len(uniq_s)))
+            mapping = dict(zip(uniq_s.to_list(), labels_int, strict=False))
+            expr = pl.col(col).replace(list(mapping.keys()), list(mapping.values()))
+            return expr.cast(pl.Int64).alias(col)
+
+        old_utf8 = uniq_s.cast(pl.Utf8).to_list()
+        new_utf8 = [f"{prefix} {i}" for i in range(start, start + len(old_utf8))]
+        expr = pl.col(col).cast(pl.Utf8).replace(old_utf8, new_utf8).cast(pl.Utf8)
+        return expr.alias(col)
 
     @staticmethod
     def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces unique values in the column with alphabetically indexed pseudonyms.
+        Replace unique values in the column with alphabetically indexed labels.
+        Repeated values receive the same label. Order follows first appearance.
 
         Example:
             "Alice", "Bob", "Alice" → "val A", "val B", "val A"
 
-        Parameters:
-            df (pl.DataFrame): The input DataFrame, used to extract unique values.
-            col (str): The name of the column to be pseudonymized.
-            params (dict): Optional parameters:
-                - "prefix" (str): A prefix to add to the generated values (default: "val").
-
-        Returns:
-            pl.Expr: An expression replacing values with alphabetic pseudonyms
-            (A, B, ..., Z, AA, AB, ...).
+        Params:
+          - start (str, default="A"): starting label ("A", "Z", "AA", ...)
+          - prefix (str | None, default="val"): optional prefix; None → no prefix
         """
 
         def alpha_to_num(s: str) -> int:
@@ -212,190 +251,270 @@ class AnonymizationMethods:
             return out
 
         params = params or {}
-        start_letter = params.get("start", "A")
-        offset = alpha_to_num(start_letter)
-        prefix = params.get("prefix")
+        start_label = params.get("start", "A")
+        start_idx = alpha_to_num(start_label)
+        prefix = params.get("prefix", "val")
 
-        idx = pl.arange(pl.lit(0), pl.len())
-        ordinal = idx + offset
+        uniques = df.select(pl.col(col)).unique(maintain_order=True).to_series().to_list()
 
-        letters = ordinal.map_elements(lambda k: num_to_alpha(int(k)), return_dtype=pl.Utf8)
+        labels = [
+            f"{prefix} {num_to_alpha(idx)}" if prefix is not None else num_to_alpha(idx)
+            for idx, _ in enumerate(uniques, start=start_idx)
+        ]
 
-        if prefix is None:
-            return letters.alias(col)
-        else:
-            return pl.format(f"{prefix} {{}}", letters).alias(col)
+        mapping = dict(zip(uniques, labels, strict=False))
+        return pl.col(col).replace(list(mapping.keys()), list(mapping.values())).alias(col)
 
     @staticmethod
     def truncate(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Truncates string values in the column to a fixed length.
+        Truncate string values in the column to a fixed maximum length.
 
-        Example:
-            "Alexander" with length=4 → "Alex"
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to be truncated.
-            params (dict): Parameters containing:
-                - "length" (int): The maximum number of characters to retain (default: 4).
-
-        Returns:
-            pl.Expr: An expression that truncates each string to the specified length.
+        Params:
+          - length (int, required): number of chars to keep (must be >= 0)
+          - preserve_nulls (bool): keep nulls unchanged (default: True)
         """
-        return pl.col(col).cast(pl.Utf8).str.slice(0, params.get("length", 4)).alias(col)
+        length = params.get("length", 4)
+        preserve_nulls = params.get("preserve_nulls", True)
+
+        try:
+            length = int(length)
+        except Exception as err:
+            raise ValueError("'length' must be an integer.") from err
+
+        if length < 0:
+            raise ValueError("'length' must be >= 0.")
+
+        s = pl.col(col).cast(pl.Utf8)
+
+        truncated = s.str.slice(0, length)
+
+        if preserve_nulls:
+            return pl.when(s.is_null()).then(None).otherwise(truncated).alias(col)
+
+        return truncated.alias(col)
 
     @staticmethod
-    def initials_only(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def initials_only(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Converts full names into initials. For example, "John Doe" becomes "J.D."
+        Convert names into initials.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing full names.
-            _params (dict): Parameters dictionary (not used in this method).
+        Examples:
+          - "John Doe"          → "J.D."
+          - "Ana   Clara Silva" → "A.C.S."
+          - "Madonna"           → "M."
+          - "   "               → ""
+          - Already-initials like "J.D." stay unchanged.
 
-        Returns:
-            pl.Expr: An expression that converts names to initials format.
+        Rules:
+          - None → None
+          - "" / whitespace → ""
+          - Non-string values are cast to string first.
         """
-        return (
-            pl.col(col)
-            .cast(pl.Utf8)
-            .map_elements(
-                lambda x: "".join([n[0].upper() + "." for n in str(x).split() if n]),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
+        _preserve_nulls = params.get("preserve_nulls", True)
+
+        orig = pl.col(col).cast(pl.Utf8)
+
+        s = orig.fill_null("")
+
+        trimmed = s.str.strip_chars()
+
+        is_initials = trimmed.str.contains(r"^([A-Z]\.)+$", literal=False)
+        is_empty = trimmed.str.len_chars() == 0
+
+        core = trimmed.str.split(" ").list.eval(
+            pl.element().filter(pl.element().str.len_chars() > 0).str.slice(0, 1).str.to_uppercase()
         )
 
+        computed = core.list.join(".") + pl.lit(".")
+
+        initials_body = (
+            pl.when(is_initials).then(trimmed).when(is_empty).then(pl.lit("")).otherwise(computed)
+        )
+
+        result = pl.when(orig.is_null()).then(None).otherwise(initials_body)
+
+        return result.alias(col)
+
     @staticmethod
-    def generalize_age(_df: pl.DataFrame, col: str, _params: dict) -> pl.Expr:
+    def generalize_age(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes age values into 10-year intervals.
+        Generalize numeric ages into N-year buckets (default 10-year).
 
-        Example:
-            25 → "20-29"
-            41 → "40-49"
+        Examples (size=10):
+            25  -> "20-29"
+            41  -> "40-49"
+            9   -> "0-9"
+            None stays None
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing age values.
-            _params (dict): Parameters dictionary (not used in this method).
+        Params:
+          - size (int, default=10): bucket width in years (must be > 0)
 
         Returns:
-            pl.Expr: An expression that converts numeric ages into age groups.
+            pl.Expr: Expression mapping each age to a string range "start-end".
         """
-        base = (pl.col(col).cast(pl.Int64) // 10) * 10
-        return (base.cast(pl.Utf8) + pl.lit("-") + (base + 9).cast(pl.Utf8)).alias(col)
+        params = params or {}
+        size = params.get("size", 10)
+
+        try:
+            size = int(size)
+        except Exception as err:
+            raise ValueError("'size' must be an integer.") from err
+
+        if size <= 0:
+            raise ValueError("'size' must be > 0.")
+
+        s = pl.col(col).cast(pl.Int64)
+
+        base = (s // size) * size
+        lower = base
+        upper = base + (size - 1)
+
+        label = lower.cast(pl.Utf8) + pl.lit("-") + upper.cast(pl.Utf8)
+
+        return pl.when(s.is_null()).then(None).otherwise(label).alias(col)
 
     @staticmethod
     def generalize_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes a date column by reducing its granularity (e.g., to month or year).
+        Generalize a date or datetime column by reducing its granularity.
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing date strings in "YYYY-MM-DD" format.
-            params (dict): Dictionary containing:
-                - "mode" (str): Either "month_year" to keep "YYYY-MM", or "year" to keep "YYYY".
-                                Defaults to "month_year".
+        Supported modes:
+          - "year"       → "YYYY"
+          - "month"      → "YYYY-MM"
+          - "quarter"    → "YYYY-Q1"
+          - "semester"   → "YYYY-S1"
+          - "week"       → "YYYY-W18"
+          - "date"       → "YYYY-MM-DD"
+          - "datetime"   → ISO datetime format (unchanged granularity)
 
-        Returns:
-            pl.Expr: An expression that truncates the date based on the selected mode.
+        Works with: Date, Datetime, or ISO strings. Nulls preserved.
         """
-        mode = params.get("mode", "month_year")
-        if mode == "month_year":
-            return pl.col(col).str.slice(0, 7).alias(col)
-        elif mode == "year":
-            return pl.col(col).str.slice(0, 4).alias(col)
+
+        mode = params.get("mode", "month")
+
+        orig = pl.col(col)
+
+        dt = orig.cast(pl.Utf8).str.strptime(pl.Datetime, strict=False)
+
+        is_null = orig.is_null()
+
+        if mode == "year":
+            out = dt.dt.truncate("1y").dt.strftime("%Y")
+
+        elif mode == "month":
+            out = dt.dt.truncate("1mo").dt.strftime("%Y-%m")
+
+        elif mode == "quarter":
+            out = dt.dt.truncate("1q").dt.strftime("%Y-Q%q")
+
+        elif mode == "semester":
+            truncated = dt.dt.truncate("6mo")
+            year_str = truncated.dt.strftime("%Y")
+            semester_num = ((dt.dt.month() - 1) // 6 + 1).cast(pl.Utf8)
+
+            out = year_str + pl.lit("-S") + semester_num
+
+        elif mode == "week":
+            out = dt.dt.truncate("1w").dt.strftime("%Y-W%W")
+
+        elif mode == "date":
+            out = dt.dt.strftime("%Y-%m-%d")
+
+        elif mode == "datetime":
+            out = dt.dt.strftime("%Y-%m-%dT%H:%M:%S")
+
         else:
-            return pl.lit("invalid_mode").alias(col)
+            raise ValueError(f"Invalid mode '{mode}' for generalize_date.")
+
+        return pl.when(is_null).then(None).otherwise(out).alias(col)
 
     @staticmethod
     def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Substitui cada valor por uma escolha aleatória dentre `choices`.
-        Se `seed` for fornecido em params, o resultado é determinístico.
-        Preserva None.
+        Replace each value with a random choice from a fixed set.
+
+        - Deterministic if `seed` is provided
+        - Preserves nulls
+        - Fully vectorized (no Python row-wise execution)
+
+        Params:
+          - choices (list[str]): possible replacement values
+          - seed (int, optional): deterministic seed
         """
         params = params or {}
         choices = params.get("choices", ["X", "Y"])
-        seed = params.get("seed", None)
+        seed = params.get("seed", 0)
 
-        rng = random.Random(seed) if seed is not None else random
+        if not choices:
+            raise ValueError("'choices' must be a non-empty list")
 
-        return (
-            pl.col(col)
-            .map_elements(
-                lambda v: None if v is None else rng.choice(choices),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        n = len(choices)
+
+        idx = pl.arange(0, pl.len()).hash(seed=seed).abs() % n
+        mapped_expr = pl.lit(choices[-1])
+        for i in range(n - 2, -1, -1):
+            mapped_expr = pl.when(idx == i).then(pl.lit(choices[i])).otherwise(mapped_expr)
+
+        return pl.when(pl.col(col).is_null()).then(None).otherwise(mapped_expr).alias(col)
 
     @staticmethod
     def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Replaces each value in the column with a randomly generated fake number (e.g., CPF, ID).
+        Replace each non-null value with a random digit string of fixed length.
 
-        Example:
-            Original: "123456789" → "80239485711" (random 11-digit string)
+        - Deterministic if `seed` is provided
+        - Preserves nulls
+        - Fully vectorized (no Python row-wise execution)
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to anonymize.
-            params (dict): Dictionary containing:
-                - "digits" (int): Number of digits to generate (default: 11).
-
-        Returns:
-            pl.Expr: An expression that replaces values with random digit strings.
+        Params:
+          - digits (int): number of digits to generate (default: 11)
+          - seed (int, optional): deterministic seed
         """
-        return (
-            pl.col(col)
-            .map_elements(
-                lambda _: "".join(random.choices(string.digits, k=params.get("digits", 11))),
-                return_dtype=pl.Utf8,
-            )
-            .alias(col)
-        )
+        params = params or {}
+        digits = params.get("digits", 11)
+        seed = params.get("seed", 0)
+
+        if not isinstance(digits, int) or digits <= 0:
+            raise ValueError("'digits' must be a positive integer")
+
+        base = pl.arange(0, pl.len()).hash(seed=seed).abs()
+
+        digit_exprs = [((base + i).hash(seed=seed + i) % 10).cast(pl.Utf8) for i in range(digits)]
+
+        random_number = pl.concat_str(digit_exprs)
+
+        return pl.when(pl.col(col).is_null()).then(None).otherwise(random_number).alias(col)
 
     @staticmethod
     def shuffle(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Randomly shuffles the values in the specified column.
+        Randomly shuffle the values within a column.
 
-        Note:
-            This method preserves the original values but reorders them randomly.
+        - Preserves original values (only reorders)
+        - Preserves nulls
+        - Deterministic if `seed` is provided
+        - Fully vectorized (Polars-native)
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column to shuffle.
-            params (dict): Parameters dictionary.
-
-        Returns:
-            pl.Expr: An expression that shuffles the column values.
+        Params:
+          - seed (int, optional): deterministic shuffle seed
         """
         params = params or {}
         seed = params.get("seed")
+
+        if seed is not None and not isinstance(seed, int):
+            raise TypeError("'seed' must be an integer")
+
         return pl.col(col).shuffle(seed=seed).alias(col)
 
     @staticmethod
     def date_offset(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Applies a random date offset (in days) to each value in the column.
+        Applies a deterministic pseudo-random date offset (in days).
 
-        Example:
-            "2025-07-20" → "2025-07-18" (random within range)
-
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column containing date strings (format "YYYY-MM-DD").
-            params (dict): Dictionary containing:
-                - "min_days" (int): Minimum number of days to shift (default: -3).
-                - "max_days" (int): Maximum number of days to shift (default: 3).
-
-        Returns:
-            pl.Expr: An expression that offsets dates randomly within the given range.
+        - Works with ISO strings, Date, or Datetime
+        - Deterministic if `seed` is provided
+        - Preserves nulls
         """
         params = params or {}
         min_days = int(params.get("min_days", 0))
@@ -406,10 +525,14 @@ class AnonymizationMethods:
             min_days, max_days = max_days, min_days
 
         span = (max_days - min_days) + 1
+        if span <= 0:
+            raise ValueError("Invalid date offset range")
 
-        base = pl.col(col).str.strptime(pl.Date, format="%Y-%m-%d", strict=False)
+        orig = pl.col(col)
 
-        idx = pl.arange(0, pl.len(), eager=False).cast(pl.UInt64)
+        base = orig.cast(pl.Utf8).str.strptime(pl.Date, strict=False)
+
+        idx = pl.arange(0, pl.len()).cast(pl.UInt64)
         rnd = idx.hash(seed=seed)
         offset = (rnd % span).cast(pl.Int64) + min_days
 
@@ -452,23 +575,36 @@ class AnonymizationMethods:
     @staticmethod
     def generalize_number_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         """
-        Generalizes numeric values into intervals of fixed size (e.g., 0-9, 10-19, etc.).
+        Generalizes numeric values into fixed-size interval buckets.
 
-        Example:
-            Value: 23, interval: 10 → "20-29"
+        Examples:
+            23 → "20-29"
+            -3 → "-10 to -1"
 
-        Parameters:
-            _df (pl.DataFrame): The input DataFrame (not used directly).
-            col (str): The name of the column with numeric values.
-            params (dict): Dictionary containing:
-                - "interval" (int): Size of each numeric range (default: 10).
+        Notes:
+            - Floats are truncated before bucketing (23.9 → 23)
+            - Null values are preserved
+            - Input must be numeric (not idempotent)
 
-        Returns:
-            pl.Expr: An expression that groups numbers into interval buckets.
+        Params:
+            - interval (int): Size of each numeric bucket (default: 10, must be > 0)
         """
+        params = params or {}
         interval = params.get("interval", 10)
-        base = (pl.col(col).cast(pl.Int64) // interval) * interval
-        return (base.cast(pl.Utf8) + pl.lit("-") + (base + interval - 1).cast(pl.Utf8)).alias(col)
+
+        if not isinstance(interval, int) or interval <= 0:
+            raise ValueError("'interval' must be a positive integer")
+
+        orig = pl.col(col)
+        is_null = orig.is_null()
+
+        value = orig.cast(pl.Int64)
+        base = (value // interval) * interval
+        upper = base + interval - 1
+
+        bucket = base.cast(pl.Utf8) + pl.lit(" to ") + upper.cast(pl.Utf8)
+
+        return pl.when(is_null).then(None).otherwise(bucket).alias(col)
 
     @staticmethod
     def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -548,7 +684,7 @@ class AnonymizationMethods:
         Returns:
             pl.Expr: An expression that returns rounded date strings.
         """
-        mode = params.get("mode", "day")
+        mode = params.get("mode", "month")
 
         def rounder(s: str) -> str:
             try:

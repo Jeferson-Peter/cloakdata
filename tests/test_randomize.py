@@ -1,5 +1,8 @@
 from collections import Counter
 
+import polars as pl
+import pytest
+
 from cloakdata import anonymize
 
 
@@ -68,3 +71,129 @@ def test_shuffle_handles_nulls(df_factory, cfg_factory):
     ), f"Shuffle must preserve value counts (including None): {orig} vs {res}"
 
     assert len(res) == len(orig)
+
+
+def test_shuffle_without_seed_is_permutation(df_factory, cfg_factory):
+    """Without seed, shuffle must still preserve value counts (multiset)."""
+    df = df_factory(city=["A", "B", "B", "C", None, "D"])
+    cfg = cfg_factory("shuffle", "city")  # no seed
+
+    out = anonymize(df, cfg)
+    assert Counter(out["city"].to_list()) == Counter(df["city"].to_list())
+    assert out.height == df.height
+
+
+def test_shuffle_all_nulls_stays_all_nulls(df_factory, cfg_factory):
+    """A fully-null column remains fully-null after shuffle."""
+    df = df_factory(city=[None, None, None])
+    cfg = cfg_factory("shuffle", "city", seed=1)
+
+    out = anonymize(df, cfg)["city"]
+    assert out.null_count() == df.height
+    assert out.to_list() == [None, None, None]
+
+
+def test_shuffle_single_element_is_noop(df_factory, cfg_factory):
+    """Shuffling a single-element column should keep the same value."""
+    df = df_factory(city=["A"])
+    cfg = cfg_factory("shuffle", "city", seed=123)
+
+    out = anonymize(df, cfg)["city"].to_list()
+    assert out == ["A"]
+
+
+def test_random_choice_default_choices_preserves_nulls(df_factory, cfg_factory):
+    """
+    Uses default choices ['X', 'Y'], keeps nulls as null, and returns only values from choices.
+    """
+    df = df_factory(col=["a", "b", None, "c", "d", None])
+    cfg = cfg_factory("random_choice", "col")  # defaults
+
+    out = anonymize(df, cfg)["col"]
+
+    expected_nulls = df["col"].null_count()
+    assert out.null_count() == expected_nulls
+    non_null = [v for v in out.to_list() if v is not None]
+    assert set(non_null).issubset({"X", "Y"})
+    assert len(non_null) == df.height - 2
+
+
+def test_random_choice_deterministic_with_same_seed(df_factory, cfg_factory):
+    """
+    Same input + same seed must yield the exact same output.
+    """
+    df = df_factory(col=["a", "b", "c", "d", "e", "f"])
+    cfg = cfg_factory("random_choice", "col", choices=["X", "Y", "Z"], seed=123)
+
+    out1 = anonymize(df, cfg)["col"].to_list()
+    out2 = anonymize(df, cfg)["col"].to_list()
+
+    assert out1 == out2
+
+
+def test_random_choice_diff_seed_changes_result_most_of_time(df_factory, cfg_factory):
+    """
+    Different seeds should generally produce different outputs.
+    (Not mathematically guaranteed, but very likely for reasonable lengths.)
+    """
+    df = df_factory(col=[f"v{i}" for i in range(30)])
+    cfg1 = cfg_factory("random_choice", "col", choices=["X", "Y", "Z"], seed=1)
+    cfg2 = cfg_factory("random_choice", "col", choices=["X", "Y", "Z"], seed=2)
+
+    out1 = anonymize(df, cfg1)["col"].to_list()
+    out2 = anonymize(df, cfg2)["col"].to_list()
+
+    assert out1 != out2
+
+
+def test_random_choice_does_not_depend_on_input_values(df_factory, cfg_factory):
+    """
+    Since mapping is index-based, different input values with same length
+    should produce the same output for the same seed/choices.
+    """
+    df1 = df_factory(col=["a", "b", "c", "d", "e"])
+    df2 = df_factory(col=["xxx", "yyy", "zzz", "www", "vvv"])
+    cfg = cfg_factory("random_choice", "col", choices=["X", "Y"], seed=999)
+
+    out1 = anonymize(df1, cfg)["col"].to_list()
+    out2 = anonymize(df2, cfg)["col"].to_list()
+
+    assert out1 == out2
+
+
+def test_random_choice_empty_choices_raises(df_factory, cfg_factory):
+    """
+    choices must be non-empty.
+    """
+    df = df_factory(col=["a", "b", None])
+    cfg = cfg_factory("random_choice", "col", choices=[])
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg)
+
+
+def test_random_choice_all_null_column(df_factory, cfg_factory):
+    """
+    A fully-null column remains fully-null.
+    """
+    df = df_factory(col=[None, None, None])
+    cfg = cfg_factory("random_choice", "col", choices=["X", "Y"], seed=42)
+
+    out = anonymize(df, cfg)["col"]
+
+    expected_nulls = len(df)
+    assert out.null_count() == expected_nulls
+    assert out.to_list() == [None, None, None]
+
+
+def test_random_choice_keeps_output_length_and_dtype(df_factory, cfg_factory):
+    """
+    Output keeps same length; dtype should be Utf8 (because mapped is a string Series).
+    """
+    df = df_factory(col=["a", None, "b", "c"])
+    cfg = cfg_factory("random_choice", "col", choices=["A", "B"], seed=0)
+
+    out = anonymize(df, cfg)["col"]
+
+    assert out.len() == df.height
+    assert out.dtype == pl.Utf8

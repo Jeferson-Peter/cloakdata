@@ -10,14 +10,14 @@
 
 ---
 
-## 🧾 What’s New (1.1.0)
+## 🧾 What’s New (2.0.0)
 
-- ✅ Added **Conditional Rules** with multi-rule support per column.
-- ✅ Added nested conditions: `all`, `any`, `not`.
-- ✅ Logical operators supported: `and`, `or`.
-- ✅ Extended test coverage for conditions.
-- 🧹 Internal refactors & style improvements (ruff).
-
+- 🔧 Improved all masking and transformation methods for consistency and safety.
+- ✨ Standardized method signatures to return `pl.Expr` for better composability.
+- 🗓️ Added `round_date` to round dates to month or year start.
+- 🛡️ Improved parameter handling (defaults, null-safety, predictable behavior).
+- 🧪 Refactored and validated tests to ensure stability across changes.
+- 📚 Improved documentation and moved detailed examples into [examples/](examples).
 ---
 
 ## ✨ Features
@@ -167,193 +167,43 @@ Apply transformations only when conditions are met.
 
 ---
 
-## 🧩 Examples by Method
+## 🧩 Examples
 
-Below are minimal examples of how each anonymization method works.
+Runnable, self-contained scripts are in the [examples/](examples) folder.
 
-All examples assume:
-
-```python
-import polars as pl
-from cloakdata import anonymize
-```
-
----
-
-### 🔒 Masking
-
-**Full mask**
-
-```python
-df = pl.DataFrame({"ssn": ["123-45-6789", "987-65-4321"]})
-config = {"columns": {"ssn": {"method": "full_mask"}}}
-print(anonymize(df, config))
-```
-
-**Mask email**
-
-```python
-df = pl.DataFrame({"email": ["john@example.com", "invalid"]})
-config = {"columns": {"email": {"method": "mask_email"}}}
-print(anonymize(df, config))
-```
-
-**Mask number**
-
-```python
-df = pl.DataFrame({"phone": ["123456789", "987654321"]})
-config = {"columns": {"phone": {"method": "mask_number"}}}
-print(anonymize(df, config))
-```
-
-**Mask partial**
-
-```python
-df = pl.DataFrame({"code": ["abcdef", "12345"]})
-config = {"columns": {"code": {"method": "mask_partial", "params": {"visible_start": 2, "visible_end": 2}}}}
-print(anonymize(df, config))
-```
-
----
-
-### 🔄 Replacement
-
-**Static value**
-
-```python
-df = pl.DataFrame({"city": ["NY", "LA"]})
-config = {"columns": {"city": {"method": "replace_with_value", "params": {"value": "Unknown"}}}}
-print(anonymize(df, config))
-```
-
-**Exact mapping**
-
-```python
-df = pl.DataFrame({"status": ["active", "inactive"]})
-config = {"columns": {"status": {"method": "replace_exact", "params": {"mapping": {"active": "A", "inactive": "I"}}}}}
-print(anonymize(df, config))
-```
-
-**Substring mapping**
-
-```python
-df = pl.DataFrame({"text": ["error: 404", "ok"]})
-config = {"columns": {"text": {"method": "replace_by_contains", "params": {"mapping": {"error": "ERR"}}}}}
-print(anonymize(df, config))
-```
-
----
-
-### 🔢 Sequential IDs
-
-```python
-df = pl.DataFrame({"user": ["Alice", "Bob", "Charlie"]})
-config = {"columns": {
-    "user": {"method": "sequential_numeric", "params": {"prefix": "U"}}
-}}
-print(anonymize(df, config))
-```
-
----
-
-### ✂️ Truncation & Initials
-
-```python
-df = pl.DataFrame({"name": ["Alice Smith", "Bob Jones"]})
-config = {"columns": {
-    "short": {"method": "truncate", "params": {"length": 3}},
-    "initials": {"method": "initials_only"}
-}}
-print(anonymize(df, config))
-```
-
----
-
-### 📊 Generalization
-
-```python
-df = pl.DataFrame({"age": [25, 42], "date": ["2025-07-20", "2025-01-15"], "salary": [2300, 12500]})
-config = {"columns": {
-    "age": {"method": "generalize_age"},
-    "date": {"method": "generalize_date", "params": {"mode": "year"}},
-    "salary": {"method": "generalize_number_range", "params": {"interval": 5000}}
-}}
-print(anonymize(df, config))
-```
-
----
-
-### 🎲 Randomization
-
-```python
-df = pl.DataFrame({
-    "state": ["SP", "RJ", "MG"],
-    "cpf": ["11111", "22222", "33333"],
-    "col": ["A", "B", "C"]
-})
-
-config = {"columns": {
-    "state": {"method": "random_choice", "params": {"choices": ["AA", "BB"], "seed": 42}},
-    "cpf": {"method": "replace_with_random_digits", "params": {"digits": 5}},
-    "col": {"method": "shuffle", "params": {"seed": 42}}
-}}
-
-print(anonymize(df, config))
-```
-
----
-
-### 📅 Dates
-
-```python
-df = pl.DataFrame({"d": ["2025-07-29", "2025-07-30"]})
-config = {"columns": {
-    "offset": {"method": "date_offset", "params": {"min_days": -2, "max_days": 2, "seed": 42}},
-    "rounded": {"method": "round_date", "params": {"mode": "month"}}
-}}
-print(anonymize(df, config))
-```
-
----
-
-### 🧩 Utilities
-
-```python
-df = pl.DataFrame({"a": [None, "X"], "b": ["Y", None], "n": [3.14159, 2.71828]})
-config = {"columns": {
-    "coalesced": {"method": "coalesce_cols", "params": {"columns": ["a", "b"]}},
-    "rounded": {"method": "round_number", "params": {"digits": 2}}
-}}
-print(anonymize(df, config))
-```
+- Masking: [masking/full_mask.py](examples/masking/full_mask.py), [masking/mask_email.py](examples/masking/mask_email.py)
+- Replacement: [replacement/replace_with_value.py](examples/replacement/replace_with_value.py)
+- Generalization: [generalization/generalize_age.py](examples/generalization/generalize_age.py)
+- Dates: [dates/date_offset.py](examples/dates/date_offset.py)
+- Randomization: [randomization/random_choice.py](examples/randomization/random_choice.py)
+- Utilities: [utilities/coalesce_cols.py](examples/utilities/coalesce_cols.py)
 
 ---
 
 ## 📊 Supported Methods
-
-| Method                   | Description                                      | Example Input → Output                  |
-|--------------------------|--------------------------------------------------|-----------------------------------------|
-| `full_mask`              | Replace all values with `*****`                  | `12345` → `*****`                       |
-| `mask_email`             | Hide local part of email, keep domain            | `john@example.com` → `xxxxx@example.com`|
-| `mask_number`            | Keep first 3 chars, mask rest                   | `123456789` → `123*****`                |
-| `mask_partial`           | Show start & end, mask middle                   | `abcdef` → `ab**ef`                     |
-| `replace_with_value`     | Replace with a static value                     | `NY` → `Unknown`                        |
-| `replace_exact`          | Replace exact matches by mapping                | `active` → `A`                          |
-| `replace_by_contains`    | Replace if substring exists                     | `error: 404` → `ERR`                    |
-| `sequential_numeric`     | Sequential numeric pseudonyms                   | `Alice, Bob` → `U 1, U 2`               |
-| `sequential_alpha`       | Sequential alphabetic pseudonyms                | `Alice, Bob` → `U A, U B`               |
-| `truncate`               | Truncate strings to fixed length                | `Alexander` → `Alex`                    |
-| `initials_only`          | Convert names to initials                       | `John Doe` → `J.D.`                     |
-| `generalize_age`         | Group ages in 10y ranges                        | `25` → `20-29`                          |
-| `generalize_date`        | Reduce granularity (year or month_year)         | `2025-07-20` → `2025`                   |
-| `generalize_number_range`| Bucketize numbers by interval                   | `23` → `20-29`                          |
-| `random_choice`          | Randomly pick value from list                   | `SP` → `AA` or `BB`                     |
-| `replace_with_random_digits` | Random digits with fixed length              | `11111` → `80239`                       |
-| `shuffle`                | Shuffle column values                          | `[A,B,C]` → `[B,C,A]`                   |
-| `date_offset`            | Random offset within day range                  | `2025-07-20` → `2025-07-18`             |
-| `coalesce_cols`          | Take first non-null from multiple cols          | `(None, Y)` → `Y`                       |
-| `round_number`           | Round numeric values to fixed decimals          | `3.14159` → `3.14`                      |
-| `round_date`             | Round date down to month or year start          | `2025-07-29` → `2025-07-01`             |
+| Method                                                                         | Description                                                                                                                                                                              | Example Input → Output                                                                                                                                                                |
+|--------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [`full_mask`](examples/masking/full_mask.py)                                   | Fixed mask or literal; supports `char`, `len`, `mask_literal`, `match_length`, `preserve_nulls`.                                                                                         | `12345` → `*****` / `XXXXXXXX` / `REDACTED`                                                                                                                                           |
+| [`mask_email`](examples/masking/mask_email.py)                                 | Masks local part; supports `mask`, `fallback_domain`, `preserve_nulls`.                                                                                                                  | `john@example.com` → `xxxxx@example.com`                                                                                                                                              |
+| [`mask_number`](examples/masking/mask_number.py)                               | Keep first N digits, then mask the rest (configurable `keep`, `mask`, `len`, `preserve_nulls`)                                                                                           | `123456789` → `123*****` <br> `98765` + `keep=2, mask="X"` → `98XXX` <br> `42` + `keep=2, len=4, mask="#"` → `42####`                                                                 |
+| [`mask_partial`](examples*masking/mask_partials.py)                            | Partial masking with configurable visibility                                                                                                                                             | `abcdef` → `a****f` (`visible_start=1`, `visible_end=1`)                                                                                                                              |
+| [`replace_with_value`](examples/replace/replace_with_value.py)                 | Replace entire column with a static **value** (dtype preserved). Optionally keep nulls with `preserve_nulls=True`. **Requires** `value`.                                                 | `["a", None, "b"]` + `value="X"` → `"X","X","X"` • `preserve_nulls=True` → `"X", None, "X"` • `value=123` → `123,123,123`                                                             |
+| [`replace_exact`](examples/replace/replace_exact.py)                           | Replace values that exactly match keys in a mapping. Values not in the mapping are unchanged. Dtype is inferred from replacements (no forced Utf8).                                      | `["a","b","c"]` + `{"a":"X"}` → `["X","b","c"]` • `[1,2,3]` + `{1:99,3:-1}` → `[99,2,-1]` • `[True,False]` + `{True:False}` → `[False,False]`                                         |
+| [`replace_by_contains`](examples/replace/replace_by_contains.py)               | Replace values when they **contain** given substrings. Literal by default; first match wins; nulls preserved. Options: `mapping`, `substr`+`replacement`, `case_sensitive`, `use_regex`. | `["foo","bar","baz"]` + `{"ba":"X"}` → `["foo","X","X"]` • `case_sensitive=False`: `"Hello"` + `{"hello":"X"}` → `"X"` • `use_regex=True`: `{"\\d{3}":"HIT"}` on `"id=123"` → `"HIT"` |
+| [`replace_with_random_digits`](examples/replace/replace_with_random_digits.py) | Replace values with randomly generated digit strings (fixed length)                                                                                                                      | `11111` → `80239`                                                                                                                                                                     |
+| [`sequential_numeric`](examples/sequential/sequential_numeric.py)              | Sequential numeric pseudonyms with optional prefix (`prefix=None` → raw integers, default `"val"`)                                                                                       | `["Alice","Bob","Alice"]` → `["val 1","val 2","val 1"]`                                                                                                                               |
+| [`sequential_alpha`](examples/sequential/sequential_alpha.py)                  | Sequential alphabetic pseudonyms with optional prefix; duplicates get the same label; order by first appearance                                                                          | `["Alice","Bob","Alice"]` → `["val A","val B","val A"]`                                                                                                                               |
+| [`truncate` ](examples/masking/truncate.py)                                    | Truncates strings to a maximum length (nulls preserved unless configured)                                                                                                                | `"Porto Alegre"` → `"Port"`                                                                                                                                                           |
+| [`initials_only`](examples/initials/initials_only.py)                          | Convert names to initials                                                                                                                                                                | `John Doe` → `J.D.`                                                                                                                                                                   |
+| [`generalize_age`](examples/generalize/generalize_age.py)                      | Group ages into ranges                                                                                                                                                                   | `25` → `20-29`                                                                                                                                                                        |
+| [`generalize_date`](examples/generalize/generalize_date.py)                    | Generalize dates/datetimes by reducing granularity (`year`, `month`, `quarter`, `semester`, `week`, `date`, `datetime`)                                                                  | `2025-07-20` → `2025-07` ; `2025-07-20` → `2025-Q3`                                                                                                                                   |
+| [`generalize_number_range`](examples/generalize/generalize_number_range.py)    | Bucket numeric values into fixed-size ranges (e.g. 0–9, 10–19)                                                                                                                           | `42` → `40-49`                                                                                                                                                                        |
+| [`random_choice`](examples/random/random_choice.py)                            | Replace values with a deterministic pseudo-random choice from a fixed set (null-safe)                                                                                                    | `São Paulo` → `X` / `Y` (with seed)                                                                                                                                                   |
+| [`shuffle`](examples/random/shuffle.py)                                        | Shuffle column values (row order preserved)                                                                                                                                              | `[A, B, C]` → `[B, C, A]`                                                                                                                                                             |
+| [`date_offset`](examples/random/date_offset.py)                                | Apply a deterministic pseudo-random day offset within a configurable range (null-safe)                                                                                                   | `2025-07-20` → `2025-07-18`                                                                                                                                                           |
+| [`coalesce_cols`](examples/utils/coalesce.py)                                  | Return the first non-null value from a list of columns, respecting priority order                                                                                                        | `(None, Y)` → `Y`                                                                                                                                                                     |
+| [`round_number`](examples/round/round_number.py)                               | Round numeric values to a configurable number of decimal places                                                                                                                          | `3.14159` (digits=2) → `3.14`                                                                                                                                                         |
+| [`round_date`](examples/round/round_date.py)                                   | Round dates down to the start of a month or year                                                                                                                                         | `2025-07-29` → `2025-07-01`                                                                                                                                                           |
 
 ---
 

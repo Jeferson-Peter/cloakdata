@@ -1,3 +1,6 @@
+import polars as pl
+import pytest
+
 from cloakdata import anonymize
 
 
@@ -21,3 +24,19 @@ def test_coalesce_cols_order_matters(df_factory, cfg_factory):
     cfg = cfg_factory("coalesce_cols", "primary", columns=["primary", "backup", "third"])
     out = anonymize(df, cfg)
     assert out["primary"].to_list() == ["B1", "P2", "T3"]
+
+
+def test_coalesce_cols_missing_columns_param_raises(df_factory, cfg_factory):
+    df = df_factory(a=[None, "x"])
+    try:
+        anonymize(df, cfg_factory("coalesce_cols", "a"))
+        raise AssertionError("Expected ValueError when columns param is missing")
+    except ValueError:
+        pass
+
+
+def test_coalesce_cols_raises_if_any_source_column_missing(df_factory, cfg_factory):
+    df = df_factory(a=[None, "x"])
+    cfg = cfg_factory("coalesce_cols", "a", columns=["a", "does_not_exist"])
+    with pytest.raises(pl.exceptions.ColumnNotFoundError):
+        anonymize(df, cfg)
