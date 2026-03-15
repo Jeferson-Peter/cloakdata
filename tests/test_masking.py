@@ -378,3 +378,56 @@ def test_mask_credit_card_invalid_keep_last_raises(df_factory, cfg_factory):
 
     with pytest.raises(ValueError, match="keep_last"):
         anonymize(df, cfg)
+
+
+def test_mask_cpf_plain_default(df_factory, cfg_factory):
+    df = df_factory(cpf=["12345678901", None])
+    cfg = cfg_factory("mask_cpf", "cpf")
+
+    out = anonymize(df, cfg)["cpf"].to_list()
+
+    assert out == ["*********01", None]
+
+
+def test_mask_cpf_formatted_preserves_punctuation(df_factory, cfg_factory):
+    df = df_factory(cpf=["123.456.789-01"])
+    cfg = cfg_factory("mask_cpf", "cpf")
+
+    out = anonymize(df, cfg)["cpf"].to_list()
+
+    assert out == ["***.***.***-01"]
+
+
+def test_mask_cpf_custom_keep_last_and_mask(df_factory, cfg_factory):
+    df = df_factory(cpf=["12345678901"])
+    cfg = cfg_factory("mask_cpf", "cpf", keep_last=3, mask_char="#")
+
+    out = anonymize(df, cfg)["cpf"].to_list()
+
+    assert out == ["########901"]
+
+
+def test_mask_cpf_keep_last_zero(df_factory, cfg_factory):
+    df = df_factory(cpf=["123.456.789-01"])
+    cfg = cfg_factory("mask_cpf", "cpf", keep_last=0)
+
+    out = anonymize(df, cfg)["cpf"].to_list()
+
+    assert out == ["***.***.***-**"]
+
+
+def test_mask_cpf_short_or_non_matching_values_unchanged(df_factory, cfg_factory):
+    df = df_factory(cpf=["1234567890", "ABC", "123-45"])
+    cfg = cfg_factory("mask_cpf", "cpf")
+
+    out = anonymize(df, cfg)["cpf"].to_list()
+
+    assert out == ["1234567890", "ABC", "123-45"]
+
+
+def test_mask_cpf_invalid_keep_last_raises(df_factory, cfg_factory):
+    df = df_factory(cpf=["12345678901"])
+    cfg = cfg_factory("mask_cpf", "cpf", keep_last=-1)
+
+    with pytest.raises(ValueError, match="keep_last"):
+        anonymize(df, cfg)
