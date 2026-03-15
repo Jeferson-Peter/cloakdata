@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cloakdata"
-version = "2.0.0"
+version = "3.0.0"
 description = "Fast data anonymization with Polars"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,7 @@ keywords = ["anonymization", "privacy", "polars", "masking"]
 
 dependencies = [
   "loguru>=0.7.3",
-  "polars>=1.36.1",
+  "polars>=1.39.0",
 ]
 
 classifiers = [

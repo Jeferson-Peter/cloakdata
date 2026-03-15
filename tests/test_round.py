@@ -36,6 +36,13 @@ def test_round_date_to_year(df_factory, cfg_factory):
     assert out["d"].to_list() == ["2024-01-01", "1999-01-01"]
 
 
+def test_round_date_invalid_values_become_invalid(df_factory, cfg_factory):
+    df = df_factory(d=["2024-01-15", "not-a-date", None])
+    cfg = cfg_factory("round_date", "d", mode="month")
+    out = anonymize(df, cfg)
+    assert out["d"].to_list() == ["2024-01-01", "invalid", None]
+
+
 def test_date_offset_is_deterministic_and_within_bounds(df_factory, cfg_factory):
     df = df_factory(d=["2024-01-10", "2024-01-20", None])
     min_days, max_days, seed = 1, 3, 123

@@ -162,6 +162,15 @@ def test_mask_partial(city_df, cfg_factory):
     assert out["city"][0][-1] == city_df["city"][0][-1]
 
 
+def test_mask_partial_visible_params(df_factory, cfg_factory):
+    """Supports visible_start/visible_end params and preserves nulls."""
+    df = df_factory(city=["abcdef", "abc", None])
+    cfg = cfg_factory("mask_partial", "city", visible_start=1, visible_end=1, mask_char="#")
+
+    out = anonymize(df, cfg)["city"].to_list()
+    assert out == ["a####f", "a#c", None]
+
+
 def test_truncate_basic(city_df, cfg_factory):
     """Truncates strings to the configured length."""
     cfg = cfg_factory("truncate", "city", length=3)
