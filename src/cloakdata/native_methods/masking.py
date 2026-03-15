@@ -2,6 +2,7 @@ import polars as pl
 
 from .catalog import native_method
 
+
 @native_method
 def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     """
@@ -209,3 +210,54 @@ def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         .otherwise(s)
         .alias(col)
     )
+
+
+@native_method
+def mask_credit_card(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    keep_last = int(params.get("keep_last", 4))
+    mask_char = str(params.get("mask_char", params.get("mask", "*")))
+    preserve_nulls = bool(params.get("preserve_nulls", True))
+
+    if keep_last < 0:
+        raise ValueError("mask_credit_card: 'keep_last' must be >= 0")
+    s = pl.col(col).cast(pl.Utf8)
+    digits_only = s.str.replace_all(r"\D", "")
+    digit_count = digits_only.str.len_chars()
+
+    if keep_last == 0:
+        masked = s.str.replace_all(r"\d", mask_char)
+    else:
+        preserved_suffix = digits_only.str.slice(-keep_last)
+
+        grouped_16 = (
+            (pl.lit(mask_char * 4) + pl.lit(" "))
+            + (pl.lit(mask_char * 4) + pl.lit(" "))
+            + (pl.lit(mask_char * 4) + pl.lit(" "))
+            + preserved_suffix
+        )
+        grouped_16_hyphen = (
+            (pl.lit(mask_char * 4) + pl.lit("-"))
+            + (pl.lit(mask_char * 4) + pl.lit("-"))
+            + (pl.lit(mask_char * 4) + pl.lit("-"))
+            + preserved_suffix
+        )
+        plain_16 = pl.lit(mask_char * 12) + preserved_suffix
+        fallback = s
+
+        masked = (
+            pl.when(s.str.contains(r"^\d{16}$", literal=False))
+            .then(plain_16)
+            .when(s.str.contains(r"^\d{4} \d{4} \d{4} \d{4}$", literal=False))
+            .then(grouped_16)
+            .when(s.str.contains(r"^\d{4}-\d{4}-\d{4}-\d{4}$", literal=False))
+            .then(grouped_16_hyphen)
+            .otherwise(fallback)
+        )
+
+    expr = pl.when(digit_count <= keep_last).then(s).otherwise(masked)
+
+    if preserve_nulls:
+        expr = pl.when(s.is_null()).then(None).otherwise(expr)
+
+    return expr.alias(col)

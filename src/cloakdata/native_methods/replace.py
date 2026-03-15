@@ -1,3 +1,5 @@
+import hashlib
+
 import polars as pl
 
 from .catalog import native_method
@@ -53,6 +55,23 @@ def replace_exact(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
 
 @native_method
+def redact_regex(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    pattern = params.get("pattern")
+    replacement = str(params.get("replacement", "[REDACTED]"))
+
+    if not pattern:
+        raise ValueError("redact_regex: 'pattern' parameter is required")
+
+    return (
+        pl.when(pl.col(col).is_null())
+        .then(None)
+        .otherwise(pl.col(col).cast(pl.Utf8).str.replace_all(pattern, replacement))
+        .alias(col)
+    )
+
+
+@native_method
 def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     params = params or {}
     digits = params.get("digits", 11)
@@ -66,3 +85,47 @@ def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.
     random_number = pl.concat_str(digit_exprs)
 
     return pl.when(pl.col(col).is_null()).then(None).otherwise(random_number).alias(col)
+
+
+@native_method
+def hash_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    algorithm = str(params.get("algorithm", "sha256")).lower()
+    salt = str(params.get("salt", ""))
+    preserve_nulls = bool(params.get("preserve_nulls", True))
+
+    if algorithm not in hashlib.algorithms_available:
+        raise ValueError(f"Unsupported hash algorithm '{algorithm}'")
+
+    def compute_hash(value: object | None) -> str | None:
+        if value is None:
+            if preserve_nulls:
+                return None
+            value = ""
+
+        payload = f"{salt}{value}".encode("utf-8")
+        return hashlib.new(algorithm, payload).hexdigest()
+
+    return pl.col(col).map_elements(compute_hash, return_dtype=pl.Utf8).alias(col)
+
+
+@native_method
+def replace_with_hash_bucket(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    buckets = params.get("buckets", 10)
+    prefix = str(params.get("prefix", "group"))
+    seed = params.get("seed", 0)
+    preserve_nulls = bool(params.get("preserve_nulls", True))
+
+    if not isinstance(buckets, int) or buckets <= 0:
+        raise ValueError("replace_with_hash_bucket: 'buckets' must be a positive integer")
+
+    width = max(2, len(str(buckets - 1)))
+    bucket_idx = pl.col(col).cast(pl.Utf8).hash(seed=seed).abs() % buckets
+    bucket_label = pl.lit(f"{prefix}_") + bucket_idx.cast(pl.Utf8).str.zfill(width)
+
+    expr = bucket_label
+    if preserve_nulls:
+        expr = pl.when(pl.col(col).is_null()).then(None).otherwise(expr)
+
+    return expr.alias(col)

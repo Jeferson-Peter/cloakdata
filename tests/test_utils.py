@@ -40,3 +40,58 @@ def test_coalesce_cols_raises_if_any_source_column_missing(df_factory, cfg_facto
     cfg = cfg_factory("coalesce_cols", "a", columns=["a", "does_not_exist"])
     with pytest.raises(pl.exceptions.ColumnNotFoundError):
         anonymize(df, cfg)
+
+
+def test_null_if_matches_exact_values(df_factory, cfg_factory):
+    df = df_factory(status=["N/A", "active", "", None])
+    cfg = cfg_factory("null_if_matches", "status", values=["N/A", ""])
+
+    out = anonymize(df, cfg)["status"].to_list()
+
+    assert out == [None, "active", None, None]
+
+
+def test_null_if_matches_regex_pattern(df_factory, cfg_factory):
+    df = df_factory(doc=["12345678901", "abc", None])
+    cfg = cfg_factory("null_if_matches", "doc", pattern=r"^\d{11}$")
+
+    out = anonymize(df, cfg)["doc"].to_list()
+
+    assert out == [None, "abc", None]
+
+
+def test_null_if_matches_case_insensitive_values(df_factory, cfg_factory):
+    df = df_factory(status=["unknown", "UNKNOWN", "Known"])
+    cfg = cfg_factory("null_if_matches", "status", values=["UNKNOWN"], case_sensitive=False)
+
+    out = anonymize(df, cfg)["status"].to_list()
+
+    assert out == [None, None, "Known"]
+
+
+def test_null_if_matches_supports_values_and_pattern(df_factory, cfg_factory):
+    df = df_factory(col=["N/A", "unknown", "12345678901", "ok"])
+    cfg = cfg_factory(
+        "null_if_matches",
+        "col",
+        values=["N/A", "unknown"],
+        pattern=r"^\d{11}$",
+    )
+
+    out = anonymize(df, cfg)["col"].to_list()
+
+    assert out == [None, None, None, "ok"]
+
+
+def test_null_if_matches_requires_values_or_pattern(df_factory, cfg_factory):
+    df = df_factory(col=["a"])
+
+    with pytest.raises(ValueError, match="values"):
+        anonymize(df, cfg_factory("null_if_matches", "col"))
+
+
+def test_null_if_matches_requires_list_values(df_factory, cfg_factory):
+    df = df_factory(col=["a"])
+
+    with pytest.raises(ValueError, match="must be a list"):
+        anonymize(df, cfg_factory("null_if_matches", "col", values="a"))

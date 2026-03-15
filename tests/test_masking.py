@@ -325,3 +325,56 @@ def test_mask_number_idempotent(df_factory, cfg_factory):
     out1 = anonymize(df, cfg)
     out2 = anonymize(out1, cfg)
     assert out1["num"].to_list() == out2["num"].to_list()
+
+
+def test_mask_credit_card_default(df_factory, cfg_factory):
+    df = df_factory(card=["4111111111111111", "5555-4444-3333-2222", None])
+    cfg = cfg_factory("mask_credit_card", "card")
+
+    out = anonymize(df, cfg)["card"].to_list()
+
+    assert out == ["************1111", "****-****-****-2222", None]
+
+
+def test_mask_credit_card_preserves_non_digit_separators(df_factory, cfg_factory):
+    df = df_factory(card=["4111 1111 1111 1111"])
+    cfg = cfg_factory("mask_credit_card", "card", keep_last=4, mask_char="#")
+
+    out = anonymize(df, cfg)["card"].to_list()
+
+    assert out == ["#### #### #### 1111"]
+
+
+def test_mask_credit_card_short_values_remain_unchanged(df_factory, cfg_factory):
+    df = df_factory(card=["1234", "123", "ABCD"])
+    cfg = cfg_factory("mask_credit_card", "card")
+
+    out = anonymize(df, cfg)["card"].to_list()
+
+    assert out == ["1234", "123", "ABCD"]
+
+
+def test_mask_credit_card_non_string_inputs(df_factory, cfg_factory):
+    df = df_factory(card=[4111111111111111, None])
+    cfg = cfg_factory("mask_credit_card", "card")
+
+    out = anonymize(df, cfg)["card"].to_list()
+
+    assert out == ["************1111", None]
+
+
+def test_mask_credit_card_keep_last_zero(df_factory, cfg_factory):
+    df = df_factory(card=["4111-1111-1111-1111"])
+    cfg = cfg_factory("mask_credit_card", "card", keep_last=0)
+
+    out = anonymize(df, cfg)["card"].to_list()
+
+    assert out == ["****-****-****-****"]
+
+
+def test_mask_credit_card_invalid_keep_last_raises(df_factory, cfg_factory):
+    df = df_factory(card=["4111111111111111"])
+    cfg = cfg_factory("mask_credit_card", "card", keep_last=-1)
+
+    with pytest.raises(ValueError, match="keep_last"):
+        anonymize(df, cfg)

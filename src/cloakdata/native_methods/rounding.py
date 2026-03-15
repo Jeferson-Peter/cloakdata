@@ -9,6 +9,33 @@ def round_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
 
 @native_method
+def clip_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    min_value = params.get("min")
+    max_value = params.get("max")
+
+    if min_value is None and max_value is None:
+        raise ValueError("clip_range: provide 'min' and/or 'max'")
+
+    if min_value is not None and not isinstance(min_value, (int, float)):
+        raise TypeError("clip_range: 'min' must be numeric")
+
+    if max_value is not None and not isinstance(max_value, (int, float)):
+        raise TypeError("clip_range: 'max' must be numeric")
+
+    if min_value is not None and max_value is not None and min_value > max_value:
+        raise ValueError("clip_range: 'min' cannot be greater than 'max'")
+
+    expr = pl.col(col).cast(pl.Float64)
+    if min_value is not None:
+        expr = expr.clip(lower_bound=float(min_value))
+    if max_value is not None:
+        expr = expr.clip(upper_bound=float(max_value))
+
+    return expr.alias(col)
+
+
+@native_method
 def round_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     mode = params.get("mode", "month")
     s = pl.col(col).cast(pl.Utf8)

@@ -1,0 +1,21 @@
+{
+  "columns": {
+    "full_name": { "method": "initials_only" },
+    "email": { "method": "mask_email" },
+    "phone": { "method": "mask_number", "params": { "keep": 2, "mask": "*", "len": 8 } },
+    "document": { "method": "replace_with_random_digits", "params": { "digits": 11, "seed": 42 } },
+    "age": { "method": "generalize_age" },
+    "city": {
+      "method": "replace_exact",
+      "params": {
+        "mapping": {
+          "Curitiba": "CWB",
+          "Sao Paulo": "SAO",
+          "Rio de Janeiro": "RIO"
+        }
+      }
+    },
+    "signup_date": { "method": "round_date", "params": { "mode": "month" } },
+    "notes": { "method": "truncate", "params": { "length": 12 } }
+  }
+}

@@ -1,3 +1,5 @@
+import hashlib
+
 import pytest
 from polars import Boolean, Utf8
 
@@ -245,3 +247,149 @@ def test_replace_with_random_digits_keeps_length_and_utf8(df_factory, cfg_factor
 
     assert out_df.height == df.height
     assert out.dtype == Utf8
+
+
+def test_hash_value_default_sha256_and_nulls(df_factory, cfg_factory):
+    df = df_factory(col=["alice@example.com", None, "bob@example.com"])
+    cfg = cfg_factory("hash_value", "col")
+
+    out = anonymize(df, cfg)["col"].to_list()
+
+    assert out[0] == hashlib.sha256(b"alice@example.com").hexdigest()
+    assert out[1] is None
+    assert out[2] == hashlib.sha256(b"bob@example.com").hexdigest()
+
+
+def test_hash_value_with_salt_is_deterministic(df_factory, cfg_factory):
+    df = df_factory(col=["alice@example.com", "alice@example.com"])
+    cfg = cfg_factory("hash_value", "col", salt="team-2026")
+
+    out = anonymize(df, cfg)["col"].to_list()
+    expected = hashlib.sha256(b"team-2026alice@example.com").hexdigest()
+
+    assert out == [expected, expected]
+
+
+def test_hash_value_salt_changes_output(df_factory, cfg_factory):
+    df = df_factory(col=["alice@example.com"])
+    out1 = anonymize(df, cfg_factory("hash_value", "col", salt="salt-a"))["col"].to_list()
+    out2 = anonymize(df, cfg_factory("hash_value", "col", salt="salt-b"))["col"].to_list()
+
+    assert out1 != out2
+
+
+def test_hash_value_supports_non_string_inputs(df_factory, cfg_factory):
+    df_int = df_factory(col=[12345, 67890])
+    df_bool = df_factory(col=[True, False])
+    cfg = cfg_factory("hash_value", "col")
+
+    out_int = anonymize(df_int, cfg)["col"].to_list()
+    out_bool = anonymize(df_bool, cfg)["col"].to_list()
+
+    assert out_int[0] == hashlib.sha256(b"12345").hexdigest()
+    assert out_int[1] == hashlib.sha256(b"67890").hexdigest()
+    assert out_bool[0] == hashlib.sha256(str(True).encode("utf-8")).hexdigest()
+    assert out_bool[1] == hashlib.sha256(str(False).encode("utf-8")).hexdigest()
+
+
+def test_hash_value_invalid_algorithm_raises(df_factory, cfg_factory):
+    df = df_factory(col=["alice@example.com"])
+    cfg = cfg_factory("hash_value", "col", algorithm="not-real")
+
+    with pytest.raises(ValueError, match="Unsupported hash algorithm"):
+        anonymize(df, cfg)
+
+
+def test_redact_regex_requires_pattern(df_factory, cfg_factory):
+    df = df_factory(txt=["alice@example.com"])
+    cfg = cfg_factory("redact_regex", "txt")
+
+    with pytest.raises(ValueError, match="pattern"):
+        anonymize(df, cfg)
+
+
+def test_redact_regex_replaces_matches_in_free_text(df_factory, cfg_factory):
+    df = df_factory(txt=["Contact alice@example.com for details", "no email here", None])
+    cfg = cfg_factory(
+        "redact_regex",
+        "txt",
+        pattern=r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        replacement="[EMAIL]",
+    )
+
+    out = anonymize(df, cfg)["txt"].to_list()
+
+    assert out == ["Contact [EMAIL] for details", "no email here", None]
+
+
+def test_redact_regex_uses_default_replacement(df_factory, cfg_factory):
+    df = df_factory(txt=["CPF 12345678901", "doc 98765432100"])
+    cfg = cfg_factory("redact_regex", "txt", pattern=r"\d{11}")
+
+    out = anonymize(df, cfg)["txt"].to_list()
+
+    assert out == ["CPF [REDACTED]", "doc [REDACTED]"]
+
+
+def test_redact_regex_supports_non_string_columns(df_factory, cfg_factory):
+    df = df_factory(txt=[12345678901, None, 98765432100])
+    cfg = cfg_factory("redact_regex", "txt", pattern=r"\d{11}", replacement="[DOC]")
+
+    out = anonymize(df, cfg)["txt"].to_list()
+
+    assert out == ["[DOC]", None, "[DOC]"]
+
+
+def test_replace_with_hash_bucket_is_deterministic(df_factory, cfg_factory):
+    df = df_factory(col=["alice", "bob", None, "alice"])
+    cfg = cfg_factory("replace_with_hash_bucket", "col", buckets=10, prefix="group", seed=42)
+
+    out1 = anonymize(df, cfg)["col"].to_list()
+    out2 = anonymize(df, cfg)["col"].to_list()
+
+    assert out1 == out2
+
+
+def test_replace_with_hash_bucket_preserves_nulls_and_prefix(df_factory, cfg_factory):
+    df = df_factory(col=["alice", None, "bob"])
+    cfg = cfg_factory("replace_with_hash_bucket", "col", buckets=8, prefix="bucket")
+
+    out = anonymize(df, cfg)["col"].to_list()
+
+    assert out[0].startswith("bucket_")
+    assert out[1] is None
+    assert out[2].startswith("bucket_")
+
+
+def test_replace_with_hash_bucket_same_input_same_bucket(df_factory, cfg_factory):
+    df = df_factory(col=["alice", "alice", "bob"])
+    cfg = cfg_factory("replace_with_hash_bucket", "col", buckets=10, prefix="grp", seed=7)
+
+    out = anonymize(df, cfg)["col"].to_list()
+
+    assert out[0] == out[1]
+    assert out[0].startswith("grp_")
+
+
+def test_replace_with_hash_bucket_different_seed_changes_output(df_factory, cfg_factory):
+    df = df_factory(col=["alice", "bob", "charlie"])
+
+    out1 = anonymize(
+        df,
+        cfg_factory("replace_with_hash_bucket", "col", buckets=10, prefix="group", seed=1),
+    )["col"].to_list()
+    out2 = anonymize(
+        df,
+        cfg_factory("replace_with_hash_bucket", "col", buckets=10, prefix="group", seed=2),
+    )["col"].to_list()
+
+    assert out1 != out2
+
+
+@pytest.mark.parametrize("buckets", [0, -1, "10"])
+def test_replace_with_hash_bucket_invalid_buckets_raises(df_factory, cfg_factory, buckets):
+    df = df_factory(col=["alice"])
+    cfg = cfg_factory("replace_with_hash_bucket", "col", buckets=buckets)
+
+    with pytest.raises(ValueError, match="buckets"):
+        anonymize(df, cfg)

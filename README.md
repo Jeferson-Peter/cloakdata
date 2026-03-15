@@ -200,12 +200,13 @@ Output:
 
 Runnable scripts live under [`examples/`](examples).
 
-- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py)
-- Replacement: [`examples/replace/replace_with_value.py`](examples/replace/replace_with_value.py)
-- Generalization: [`examples/generalize/generalize_age.py`](examples/generalize/generalize_age.py)
+- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py), [`examples/masking/mask_credit_card.py`](examples/masking/mask_credit_card.py)
+- Replacement: [`examples/replace/replace_with_value.py`](examples/replace/replace_with_value.py), [`examples/replace/hash_value.py`](examples/replace/hash_value.py), [`examples/replace/redact_regex.py`](examples/replace/redact_regex.py), [`examples/replace/replace_with_hash_bucket.py`](examples/replace/replace_with_hash_bucket.py)
+- Generalization: [`examples/generalize/generalize_age.py`](examples/generalize/generalize_age.py), [`examples/generalize/top_k_bucket.py`](examples/generalize/top_k_bucket.py), [`examples/generalize/generalize_zip_code.py`](examples/generalize/generalize_zip_code.py), [`examples/generalize/coarsen_datetime.py`](examples/generalize/coarsen_datetime.py)
 - Dates: [`examples/random/date_offset.py`](examples/random/date_offset.py)
-- Randomization: [`examples/random/random_choice.py`](examples/random/random_choice.py)
-- Utilities: [`examples/utils/coalesce.py`](examples/utils/coalesce.py)
+- Randomization: [`examples/random/random_choice.py`](examples/random/random_choice.py), [`examples/random/noise_numeric.py`](examples/random/noise_numeric.py)
+- Numeric transforms: [`examples/round/round_number.py`](examples/round/round_number.py), [`examples/round/clip_range.py`](examples/round/clip_range.py)
+- Utilities: [`examples/utils/coalesce.py`](examples/utils/coalesce.py), [`examples/utils/null_if_matches.py`](examples/utils/null_if_matches.py)
 
 ---
 
@@ -216,10 +217,14 @@ Runnable scripts live under [`examples/`](examples).
 | [`full_mask`](examples/masking/full_mask.py) | Fixed mask or literal |
 | [`mask_email`](examples/masking/mask_email.py) | Masks the local part of an email |
 | [`mask_number`](examples/masking/mask_number.py) | Keeps leading characters and masks the rest |
+| [`mask_credit_card`](examples/masking/mask_credit_card.py) | Masks card digits while preserving the last visible digits |
 | [`mask_partial`](examples/masking/mask_partials.py) | Masks the middle while preserving visible edges |
 | [`truncate`](examples/masking/truncate.py) | Truncates strings to a fixed length |
 | [`initials_only`](examples/initials/initials_only.py) | Converts names to initials |
 | [`replace_with_value`](examples/replace/replace_with_value.py) | Replaces all values with a static value |
+| [`hash_value`](examples/replace/hash_value.py) | Generates deterministic hashes, with optional salt |
+| [`redact_regex`](examples/replace/redact_regex.py) | Redacts regex matches inside free text |
+| [`replace_with_hash_bucket`](examples/replace/replace_with_hash_bucket.py) | Replaces values with deterministic hash buckets |
 | [`replace_exact`](examples/replace/replace_exact.py) | Replaces exact values using a mapping |
 | [`replace_by_contains`](examples/replace/replace_by_contains.py) | Replaces values that contain substrings |
 | [`replace_with_random_digits`](examples/replace/replace_with_random_digits.py) | Generates deterministic digit strings |
@@ -228,12 +233,25 @@ Runnable scripts live under [`examples/`](examples).
 | [`generalize_age`](examples/generalize/generalize_age.py) | Groups ages into ranges |
 | [`generalize_date`](examples/generalize/generalize_date.py) | Reduces date and datetime granularity |
 | [`generalize_number_range`](examples/generalize/generalize_number_range.py) | Buckets numeric values into fixed intervals |
+| [`generalize_zip_code`](examples/generalize/generalize_zip_code.py) | Preserves a visible postal-code prefix and masks the rest |
+| [`coarsen_datetime`](examples/generalize/coarsen_datetime.py) | Coarsens timestamps into buckets, minute-of-day buckets (time-only or full datetime), hour, part-of-day, weekday, weekend/weekday, or configurable business-hours labels |
+| [`top_k_bucket`](examples/generalize/top_k_bucket.py) | Keeps the top-k most frequent categories and buckets the rest |
 | [`random_choice`](examples/random/random_choice.py) | Picks deterministic values from a fixed set |
+| [`noise_numeric`](examples/random/noise_numeric.py) | Adds deterministic numeric noise within configured bounds |
 | [`shuffle`](examples/random/shuffle.py) | Shuffles values while keeping row count |
 | [`date_offset`](examples/random/date_offset.py) | Applies deterministic date offsets |
+| [`clip_range`](examples/round/clip_range.py) | Constrains numeric values to configured min/max bounds |
 | [`round_number`](examples/round/round_number.py) | Rounds numeric values |
 | [`round_date`](examples/round/round_date.py) | Rounds dates to month or year start |
 | [`coalesce_cols`](examples/utils/coalesce.py) | Returns the first non-null value across columns |
+| [`null_if_matches`](examples/utils/null_if_matches.py) | Converts known placeholders or regex matches into null |
+
+---
+
+## Notes
+
+- `hash_value` is deterministic and better when you need stable one-way pseudonymization.
+- `replace_with_hash_bucket` is deterministic bucketing, not unique pseudonymization. Different input values can land in the same bucket when the number of unique values is greater than the configured number of buckets.
 
 ---
 
