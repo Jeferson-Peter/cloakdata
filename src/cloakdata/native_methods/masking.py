@@ -261,3 +261,52 @@ def mask_credit_card(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         expr = pl.when(s.is_null()).then(None).otherwise(expr)
 
     return expr.alias(col)
+
+
+@native_method
+def mask_cpf(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    params = params or {}
+    keep_last = int(params.get("keep_last", 2))
+    mask_char = str(params.get("mask_char", params.get("mask", "*")))
+    preserve_nulls = bool(params.get("preserve_nulls", True))
+
+    if keep_last < 0:
+        raise ValueError("mask_cpf: 'keep_last' must be >= 0")
+
+    s = pl.col(col).cast(pl.Utf8)
+    digits_only = s.str.replace_all(r"\D", "")
+    digit_count = digits_only.str.len_chars()
+
+    if keep_last == 0:
+        plain_masked = pl.lit(mask_char * 11)
+        formatted_masked = pl.lit(f"{mask_char * 3}.{mask_char * 3}.{mask_char * 3}-{mask_char * 2}")
+    else:
+        visible_suffix = digits_only.str.slice(-keep_last)
+        masked_digits = pl.lit(mask_char * (11 - keep_last)) + visible_suffix
+
+        # Only preserve punctuation for the common CPF display format.
+        plain_masked = masked_digits
+        formatted_masked = (
+            masked_digits.str.slice(0, 3)
+            + pl.lit(".")
+            + masked_digits.str.slice(3, 3)
+            + pl.lit(".")
+            + masked_digits.str.slice(6, 3)
+            + pl.lit("-")
+            + masked_digits.str.slice(9, 2)
+        )
+
+    masked = (
+        pl.when(s.str.contains(r"^\d{11}$", literal=False))
+        .then(plain_masked)
+        .when(s.str.contains(r"^\d{3}\.\d{3}\.\d{3}-\d{2}$", literal=False))
+        .then(formatted_masked)
+        .otherwise(s)
+    )
+
+    expr = pl.when(digit_count <= keep_last).then(s).otherwise(masked)
+
+    if preserve_nulls:
+        expr = pl.when(s.is_null()).then(None).otherwise(expr)
+
+    return expr.alias(col)

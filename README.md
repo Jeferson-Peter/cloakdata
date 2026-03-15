@@ -200,7 +200,7 @@ Output:
 
 Runnable scripts live under [`examples/`](examples).
 
-- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py), [`examples/masking/mask_credit_card.py`](examples/masking/mask_credit_card.py)
+- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py), [`examples/masking/mask_credit_card.py`](examples/masking/mask_credit_card.py), [`examples/masking/mask_cpf.py`](examples/masking/mask_cpf.py)
 - Replacement: [`examples/replace/replace_with_value.py`](examples/replace/replace_with_value.py), [`examples/replace/hash_value.py`](examples/replace/hash_value.py), [`examples/replace/redact_regex.py`](examples/replace/redact_regex.py), [`examples/replace/replace_with_hash_bucket.py`](examples/replace/replace_with_hash_bucket.py)
 - Generalization: [`examples/generalize/generalize_age.py`](examples/generalize/generalize_age.py), [`examples/generalize/top_k_bucket.py`](examples/generalize/top_k_bucket.py), [`examples/generalize/generalize_zip_code.py`](examples/generalize/generalize_zip_code.py), [`examples/generalize/coarsen_datetime.py`](examples/generalize/coarsen_datetime.py)
 - Dates: [`examples/random/date_offset.py`](examples/random/date_offset.py)
@@ -218,6 +218,7 @@ Runnable scripts live under [`examples/`](examples).
 | [`mask_email`](examples/masking/mask_email.py) | Masks the local part of an email |
 | [`mask_number`](examples/masking/mask_number.py) | Keeps leading characters and masks the rest |
 | [`mask_credit_card`](examples/masking/mask_credit_card.py) | Masks card digits while preserving the last visible digits |
+| [`mask_cpf`](examples/masking/mask_cpf.py) | Masks Brazilian CPF values while preserving the final visible digits |
 | [`mask_partial`](examples/masking/mask_partials.py) | Masks the middle while preserving visible edges |
 | [`truncate`](examples/masking/truncate.py) | Truncates strings to a fixed length |
 | [`initials_only`](examples/initials/initials_only.py) | Converts names to initials |
