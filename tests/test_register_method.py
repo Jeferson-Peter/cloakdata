@@ -3,10 +3,12 @@ import pytest
 
 from cloakdata import (
     anonymize,
+    get_all_methods,
     get_registered_methods,
     register_method,
     unregister_method,
 )
+from cloakdata.registry import build_native_dispatch_map
 
 
 def _cleanup_custom(name: str):
@@ -71,3 +73,24 @@ def test_dispatch_executes_custom_in_anonymize():
         assert out.get_column("name").to_list() == ["Al*c*", "B*b"]
     finally:
         unregister_method("mask_vowels")
+
+
+def test_native_dispatch_map_uses_explicit_catalog():
+    dispatch = build_native_dispatch_map()
+
+    assert "full_mask" in dispatch
+    assert "round_date" in dispatch
+    assert "coalesce_cols" in dispatch
+
+
+def test_get_all_methods_includes_native_and_custom():
+    def temp_custom(_df, _col, _params):
+        return pl.lit("X")
+
+    register_method(temp_custom, name="temp_custom")
+    try:
+        all_methods = get_all_methods()
+        assert "full_mask" in all_methods
+        assert "temp_custom" in all_methods
+    finally:
+        unregister_method("temp_custom")

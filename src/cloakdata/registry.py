@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .methods import AnonymizationMethods
+from .native_methods import NATIVE_METHODS
 from .types import MethodCallable
 from .validators import validate_signature_only
 
@@ -9,9 +9,7 @@ _CUSTOM_METHODS: dict[str, MethodCallable] = {}
 
 def register_method(func: MethodCallable, name: str | None = None) -> str:
     """
-    Registra um método customizado (valida assinatura).
-    - NÃO permite sobrescrever método nativo.
-    - NÃO sobrescreve custom existente (evita colisão).
+    Register a custom method after validating its signature.
     """
     if not callable(func):
         raise TypeError("func must be callable")
@@ -46,30 +44,17 @@ def get_all_methods() -> tuple[str, ...]:
 
 def build_native_dispatch_map() -> dict[str, MethodCallable]:
     """
-    Retorna apenas os métodos nativos (estáticos) da class `AnonymizationMethods`.
+    Return the explicitly registered native methods.
     """
-    import inspect
-
-    exclude = {
-        "apply_conditioned_expr",
-        "anonymize",
-        "build_dispatch_map",
-        "build_native_dispatch_map",
-    }
-    dispatch: dict[str, MethodCallable] = {}
-    for name, func in inspect.getmembers(AnonymizationMethods, predicate=inspect.isfunction):
-        if name.startswith("_") or name in exclude:
-            continue
-        dispatch[name] = func
-    return dispatch
+    return dict(NATIVE_METHODS)
 
 
 def build_dispatch_map() -> dict[str, MethodCallable]:
     """
-    Mapa final: nativos + custom. (Custom NUNCA sobrescrevem nativos.)
+    Final map: native + custom. Custom methods never override native ones.
     """
     dispatch = build_native_dispatch_map()
-    for k, v in _CUSTOM_METHODS.items():
-        if k not in dispatch:
-            dispatch[k] = v
+    for key, value in _CUSTOM_METHODS.items():
+        if key not in dispatch:
+            dispatch[key] = value
     return dispatch
