@@ -275,3 +275,313 @@ def test_generalize_number_range_non_int_interval_raises(df_factory, cfg_factory
 
     with pytest.raises(ValueError):
         anonymize(df, cfg)
+
+
+def test_top_k_bucket_keeps_most_frequent_values(df_factory, cfg_factory):
+    df = df_factory(city=["SP", "SP", "RJ", "RJ", "MG", "BA", None])
+    cfg = cfg_factory("top_k_bucket", "city", k=2, other_label="OTHER")
+
+    out = anonymize(df, cfg)["city"].to_list()
+
+    assert out == ["SP", "SP", "RJ", "RJ", "OTHER", "OTHER", None]
+
+
+def test_top_k_bucket_preserves_nulls(df_factory, cfg_factory):
+    df = df_factory(city=[None, "SP", "MG"])
+    cfg = cfg_factory("top_k_bucket", "city", k=1)
+
+    out = anonymize(df, cfg)["city"].to_list()
+
+    assert out[0] is None
+
+
+def test_top_k_bucket_uses_custom_other_label(df_factory, cfg_factory):
+    df = df_factory(city=["SP", "RJ", "MG", "BA"])
+    cfg = cfg_factory("top_k_bucket", "city", k=1, other_label="RARE")
+
+    out = anonymize(df, cfg)["city"].to_list()
+
+    assert out.count("RARE") == 3
+
+
+def test_top_k_bucket_is_deterministic_on_ties(df_factory, cfg_factory):
+    df = df_factory(city=["B", "A", "C", "B", "A", "D"])
+    cfg = cfg_factory("top_k_bucket", "city", k=2, other_label="OTHER")
+
+    out = anonymize(df, cfg)["city"].to_list()
+
+    assert out == ["B", "A", "OTHER", "B", "A", "OTHER"]
+
+
+@pytest.mark.parametrize("k", [0, -1, "2"])
+def test_top_k_bucket_invalid_k_raises(df_factory, cfg_factory, k):
+    df = df_factory(city=["SP", "RJ"])
+    cfg = cfg_factory("top_k_bucket", "city", k=k)
+
+    with pytest.raises(ValueError):
+        anonymize(df, cfg)
+
+
+def test_generalize_zip_code_masks_suffix(df_factory, cfg_factory):
+    df = df_factory(zip_code=["81320-000", "10001", None])
+    cfg = cfg_factory("generalize_zip_code", "zip_code", visible_prefix=3)
+
+    out = anonymize(df, cfg)["zip_code"].to_list()
+
+    assert out == ["813**-***", "100**", None]
+
+
+def test_generalize_zip_code_preserves_short_values(df_factory, cfg_factory):
+    df = df_factory(zip_code=["123", "12", "1"])
+    cfg = cfg_factory("generalize_zip_code", "zip_code", visible_prefix=3)
+
+    out = anonymize(df, cfg)["zip_code"].to_list()
+
+    assert out == ["123", "12", "1"]
+
+
+def test_generalize_zip_code_supports_custom_mask_char(df_factory, cfg_factory):
+    df = df_factory(zip_code=["12345-6789"])
+    cfg = cfg_factory("generalize_zip_code", "zip_code", visible_prefix=5, mask_char="#")
+
+    out = anonymize(df, cfg)["zip_code"].to_list()
+
+    assert out == ["12345-####"]
+
+
+def test_generalize_zip_code_supports_alphanumeric_postal_codes(df_factory, cfg_factory):
+    df = df_factory(zip_code=["SW1A 1AA"])
+    cfg = cfg_factory("generalize_zip_code", "zip_code", visible_prefix=4)
+
+    out = anonymize(df, cfg)["zip_code"].to_list()
+
+    assert out == ["SW1A ***"]
+
+
+@pytest.mark.parametrize("visible_prefix", [-1, "3"])
+def test_generalize_zip_code_invalid_visible_prefix_raises(
+    df_factory, cfg_factory, visible_prefix
+):
+    df = df_factory(zip_code=["81320-000"])
+    cfg = cfg_factory("generalize_zip_code", "zip_code", visible_prefix=visible_prefix)
+
+    with pytest.raises(ValueError, match="visible_prefix"):
+        anonymize(df, cfg)
+
+
+def test_coarsen_datetime_bucket_hour(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-01T00:05:00", None])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="bucket", minutes=60)
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["2024-05-01T14:00:00", "2024-05-01T00:00:00", None]
+
+
+def test_coarsen_datetime_bucket_15_minutes(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-01T14:14:59"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="bucket", minutes=15)
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["2024-05-01T14:30:00", "2024-05-01T14:00:00"]
+
+
+def test_coarsen_datetime_minute_of_day_bucket(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-01T09:12:00", None])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="minute_of_day_bucket", minutes=30)
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["14:30", "09:00", None]
+
+
+def test_coarsen_datetime_minute_of_day_bucket_datetime_output(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22"])
+    cfg = cfg_factory(
+        "coarsen_datetime",
+        "dt",
+        mode="minute_of_day_bucket",
+        minutes=30,
+        output="datetime",
+    )
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["2024-05-01T14:30:00"]
+
+
+def test_coarsen_datetime_invalid_values_become_invalid(df_factory, cfg_factory):
+    df = df_factory(dt=["not-a-datetime", None])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="bucket", minutes=30)
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["invalid", None]
+
+
+def test_coarsen_datetime_part_of_day(df_factory, cfg_factory):
+    df = df_factory(
+        dt=[
+            "2024-05-01T02:00:00",
+            "2024-05-01T08:30:00",
+            "2024-05-01T14:00:00",
+            "2024-05-01T20:15:00",
+            None,
+        ]
+    )
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="part_of_day")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["night", "morning", "afternoon", "evening", None]
+
+
+def test_coarsen_datetime_part_of_day_invalid_values_become_invalid(df_factory, cfg_factory):
+    df = df_factory(dt=["bad-value", None])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="part_of_day")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["invalid", None]
+
+
+def test_coarsen_datetime_hour(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-01T00:59:59"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="hour")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["2024-05-01T14:00:00", "2024-05-01T00:00:00"]
+
+
+def test_coarsen_datetime_weekday(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-04T10:00:00"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="weekday")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["wednesday", "saturday"]
+
+
+def test_coarsen_datetime_weekend_weekday(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22", "2024-05-04T10:00:00"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="weekend_weekday")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["weekday", "weekend"]
+
+
+def test_coarsen_datetime_business_hours(df_factory, cfg_factory):
+    df = df_factory(
+        dt=[
+            "2024-05-01T10:00:00",
+            "2024-05-01T20:00:00",
+            "2024-05-04T10:00:00",
+        ]
+    )
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="business_hours")
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["business_hours", "off_hours", "off_hours"]
+
+
+def test_coarsen_datetime_business_hours_custom_range(df_factory, cfg_factory):
+    df = df_factory(
+        dt=[
+            "2024-05-01T08:00:00",
+            "2024-05-01T17:59:59",
+            "2024-05-01T18:00:00",
+        ]
+    )
+    cfg = cfg_factory(
+        "coarsen_datetime",
+        "dt",
+        mode="business_hours",
+        start_hour=8,
+        end_hour=18,
+    )
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["business_hours", "business_hours", "off_hours"]
+
+
+def test_coarsen_datetime_business_hours_include_weekends(df_factory, cfg_factory):
+    df = df_factory(
+        dt=[
+            "2024-05-04T10:00:00",
+            "2024-05-05T10:00:00",
+        ]
+    )
+    cfg = cfg_factory(
+        "coarsen_datetime",
+        "dt",
+        mode="business_hours",
+        include_weekends=True,
+    )
+
+    out = anonymize(df, cfg)["dt"].to_list()
+
+    assert out == ["business_hours", "business_hours"]
+
+
+@pytest.mark.parametrize("minutes", [0, -1, "15"])
+def test_coarsen_datetime_invalid_minutes_raises(df_factory, cfg_factory, minutes):
+    df = df_factory(dt=["2024-05-01T14:37:22"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="bucket", minutes=minutes)
+
+    with pytest.raises(ValueError, match="minutes"):
+        anonymize(df, cfg)
+
+
+def test_coarsen_datetime_invalid_mode_raises(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22"])
+    cfg = cfg_factory("coarsen_datetime", "dt", mode="not-supported")
+
+    with pytest.raises(ValueError, match="mode"):
+        anonymize(df, cfg)
+
+
+def test_coarsen_datetime_minute_of_day_bucket_invalid_output_raises(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22"])
+    cfg = cfg_factory(
+        "coarsen_datetime",
+        "dt",
+        mode="minute_of_day_bucket",
+        minutes=30,
+        output="bad",
+    )
+
+    with pytest.raises(ValueError, match="output"):
+        anonymize(df, cfg)
+
+
+def test_coarsen_datetime_business_hours_invalid_bounds_raise(df_factory, cfg_factory):
+    df = df_factory(dt=["2024-05-01T14:37:22"])
+
+    with pytest.raises(ValueError, match="start_hour"):
+        anonymize(
+            df,
+            cfg_factory(
+                "coarsen_datetime",
+                "dt",
+                mode="business_hours",
+                start_hour=18,
+                end_hour=9,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="start_hour"):
+        anonymize(
+            df,
+            cfg_factory(
+                "coarsen_datetime",
+                "dt",
+                mode="business_hours",
+                start_hour="8",
+                end_hour=18,
+            ),
+        )

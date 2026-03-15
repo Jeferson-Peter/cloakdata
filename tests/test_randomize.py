@@ -197,3 +197,68 @@ def test_random_choice_keeps_output_length_and_dtype(df_factory, cfg_factory):
 
     assert out.len() == df.height
     assert out.dtype == pl.Utf8
+
+
+def test_noise_numeric_is_deterministic(df_factory, cfg_factory):
+    df = df_factory(col=[10.0, 20.0, None, 30.0])
+    cfg = cfg_factory("noise_numeric", "col", min_delta=-1.5, max_delta=1.5, seed=42)
+
+    out1 = anonymize(df, cfg)["col"].to_list()
+    out2 = anonymize(df, cfg)["col"].to_list()
+
+    assert out1 == out2
+
+
+def test_noise_numeric_preserves_nulls_and_changes_non_nulls(df_factory, cfg_factory):
+    df = df_factory(col=[100.0, None, 200.0])
+    cfg = cfg_factory("noise_numeric", "col", min_delta=-5.0, max_delta=5.0, seed=7)
+
+    out = anonymize(df, cfg)["col"].to_list()
+
+    assert out[1] is None
+    assert out[0] != 100.0
+    assert out[2] != 200.0
+
+
+def test_noise_numeric_respects_delta_bounds(df_factory, cfg_factory):
+    df = df_factory(col=[10.0, 20.0, 30.0])
+    cfg = cfg_factory("noise_numeric", "col", min_delta=-2.0, max_delta=3.0, seed=1)
+
+    out = anonymize(df, cfg)["col"].to_list()
+    original = [10.0, 20.0, 30.0]
+
+    for actual, expected in zip(out, original):
+        delta = actual - expected
+        assert -2.0 <= delta <= 3.0
+
+
+def test_noise_numeric_different_seed_changes_output(df_factory, cfg_factory):
+    df = df_factory(col=[10.0, 20.0, 30.0, 40.0])
+
+    out1 = anonymize(
+        df,
+        cfg_factory("noise_numeric", "col", min_delta=-1.0, max_delta=1.0, seed=1),
+    )["col"].to_list()
+    out2 = anonymize(
+        df,
+        cfg_factory("noise_numeric", "col", min_delta=-1.0, max_delta=1.0, seed=2),
+    )["col"].to_list()
+
+    assert out1 != out2
+
+
+def test_noise_numeric_requires_bounds(df_factory, cfg_factory):
+    df = df_factory(col=[10.0])
+
+    with pytest.raises(ValueError, match="min_delta"):
+        anonymize(df, cfg_factory("noise_numeric", "col"))
+
+
+def test_noise_numeric_rejects_invalid_bounds(df_factory, cfg_factory):
+    df = df_factory(col=[10.0])
+
+    with pytest.raises(TypeError, match="must be numeric"):
+        anonymize(df, cfg_factory("noise_numeric", "col", min_delta="a", max_delta=1.0))
+
+    with pytest.raises(ValueError, match="cannot be greater"):
+        anonymize(df, cfg_factory("noise_numeric", "col", min_delta=2.0, max_delta=1.0))

@@ -19,6 +19,65 @@ def test_round_number_zero_digits(df_factory, cfg_factory):
     assert out["num"].to_list() == [2.0, 2.0, -3.0]
 
 
+def test_clip_range_with_min_and_max(df_factory, cfg_factory):
+    df = df_factory(num=[5.0, 18.0, 42.0, 120.0, None])
+    cfg = cfg_factory("clip_range", "num", min=18, max=90)
+
+    out = anonymize(df, cfg)["num"].to_list()
+
+    assert out == [18.0, 18.0, 42.0, 90.0, None]
+
+
+def test_clip_range_with_only_min(df_factory, cfg_factory):
+    df = df_factory(num=[5.0, 18.0, None])
+    cfg = cfg_factory("clip_range", "num", min=10)
+
+    out = anonymize(df, cfg)["num"].to_list()
+
+    assert out == [10.0, 18.0, None]
+
+
+def test_clip_range_with_only_max(df_factory, cfg_factory):
+    df = df_factory(num=[5.0, 18.0, 120.0, None])
+    cfg = cfg_factory("clip_range", "num", max=50)
+
+    out = anonymize(df, cfg)["num"].to_list()
+
+    assert out == [5.0, 18.0, 50.0, None]
+
+
+def test_clip_range_requires_bounds(df_factory, cfg_factory):
+    df = df_factory(num=[1.0])
+
+    try:
+        anonymize(df, cfg_factory("clip_range", "num"))
+        raise AssertionError("Expected ValueError when both min and max are missing")
+    except ValueError:
+        pass
+
+
+def test_clip_range_rejects_invalid_bounds(df_factory, cfg_factory):
+    df = df_factory(num=[1.0])
+
+    try:
+        anonymize(df, cfg_factory("clip_range", "num", min="a"))
+        raise AssertionError("Expected TypeError for non-numeric min")
+    except TypeError:
+        pass
+
+    try:
+        anonymize(df, cfg_factory("clip_range", "num", max="b"))
+        raise AssertionError("Expected TypeError for non-numeric max")
+    except TypeError:
+        pass
+
+    try:
+        anonymize(df, cfg_factory("clip_range", "num", min=10, max=5))
+        raise AssertionError("Expected ValueError when min > max")
+    except ValueError:
+        pass
+
+
 def test_round_date_to_month(df_factory, cfg_factory):
     df = df_factory(d=["2024-01-15", "1999-12-31", None])
     cfg = cfg_factory("round_date", "d", mode="month")
