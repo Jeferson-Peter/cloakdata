@@ -296,7 +296,7 @@ def test_hash_value_invalid_algorithm_raises(df_factory, cfg_factory):
     df = df_factory(col=["alice@example.com"])
     cfg = cfg_factory("hash_value", "col", algorithm="not-real")
 
-    with pytest.raises(ValueError, match="Unsupported hash algorithm"):
+    with pytest.raises(ValueError, match="hash_value: unsupported hash algorithm"):
         anonymize(df, cfg)
 
 

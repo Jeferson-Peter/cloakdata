@@ -10,10 +10,10 @@ def generalize_age(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     try:
         size = int(size)
     except Exception as err:
-        raise ValueError("'size' must be an integer.") from err
+        raise ValueError("generalize_age: 'size' must be an integer") from err
 
     if size <= 0:
-        raise ValueError("'size' must be > 0.")
+        raise ValueError("generalize_age: 'size' must be > 0")
 
     s = pl.col(col).cast(pl.Int64)
     base = (s // size) * size
@@ -48,7 +48,7 @@ def generalize_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     elif mode == "datetime":
         out = dt.dt.strftime("%Y-%m-%dT%H:%M:%S")
     else:
-        raise ValueError(f"Invalid mode '{mode}' for generalize_date.")
+        raise ValueError(f"generalize_date: invalid mode '{mode}'")
 
     return pl.when(is_null).then(None).otherwise(out).alias(col)
 
@@ -59,7 +59,7 @@ def generalize_number_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Exp
     interval = params.get("interval", 10)
 
     if not isinstance(interval, int) or interval <= 0:
-        raise ValueError("'interval' must be a positive integer")
+        raise ValueError("generalize_number_range: 'interval' must be a positive integer")
 
     orig = pl.col(col)
     is_null = orig.is_null()

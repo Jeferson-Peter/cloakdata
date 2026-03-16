@@ -9,27 +9,57 @@ A flexible data anonymization library built on [Polars](https://pola.rs/), desig
 
 ---
 
-## What's New in 2.0.0
+## Current Highlights
 
-- Improved masking and transformation consistency
-- Standardized built-in methods to return `pl.Expr`
-- Added `round_date`
-- Improved parameter handling and null safety
-- Expanded test coverage
-- Reorganized built-in methods under `src/cloakdata/native_methods/`
+- Built-in methods are organized by domain under `src/cloakdata/native_methods/`
+- Native methods are registered automatically with `@native_method`
+- Practical support for masking, replacement, generalization, randomization, and data cleanup
+- Config-driven anonymization with conditional rules
+- Runnable examples for the main built-in methods
+- Built on Polars for fast vectorized execution
 
 ---
 
 ## Features
 
-- Masking: full, partial, emails, numbers
-- Replacement: static values, exact mapping, contains-based rules
-- Sequential IDs: numeric and alphabetical
-- Generalization: age, date, number ranges
-- Randomization: choices, digits, shuffle, date offsets
+- Masking:
+  - `full_mask`
+  - `mask_email`
+  - `mask_number`
+  - `mask_credit_card`
+  - `mask_cpf`
+  - `mask_partial`
+- Replacement and pseudonymization:
+  - `replace_with_value`
+  - `replace_exact`
+  - `replace_by_contains`
+  - `replace_with_random_digits`
+  - `hash_value`
+  - `replace_with_hash_bucket`
+  - `redact_regex`
+- Generalization:
+  - `generalize_age`
+  - `generalize_date`
+  - `generalize_number_range`
+  - `generalize_zip_code`
+  - `top_k_bucket`
+  - `coarsen_datetime`
+- Randomization and transforms:
+  - `random_choice`
+  - `shuffle`
+  - `noise_numeric`
+  - `date_offset`
+  - `round_number`
+  - `round_date`
+  - `clip_range`
+- Utilities:
+  - `coalesce_cols`
+  - `null_if_matches`
+- Sequential pseudonyms:
+  - `sequential_numeric`
+  - `sequential_alpha`
 - Conditional rules with nested logic
 - Custom runtime methods with `register_method(...)`
-- Built on Polars for fast vectorized execution
 
 ---
 
@@ -78,23 +108,37 @@ print(out)
   "columns": {
     "name": { "method": "initials_only" },
     "email": { "method": "mask_email" },
-    "phone": { "method": "mask_number" },
+    "email_hash": {
+      "method": "hash_value",
+      "params": { "salt": "team-2026" }
+    },
+    "phone": { "method": "mask_number", "params": { "keep": 3 } },
     "cpf": {
-      "method": "replace_with_random_digits",
-      "params": { "digits": 11 }
+      "method": "mask_cpf",
+      "params": { "keep_last": 2 }
     },
     "status": {
       "method": "replace_exact",
       "params": { "mapping": { "active": "A", "inactive": "I" } }
+    },
+    "notes": {
+      "method": "redact_regex",
+      "params": {
+        "pattern": "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+        "replacement": "[EMAIL]"
+      }
     },
     "id_seq": { "method": "sequential_numeric", "params": { "prefix": "ID" } },
     "ref_code": { "method": "sequential_alpha", "params": { "prefix": "REF" } },
     "comments": { "method": "truncate", "params": { "length": 5 } },
     "age": { "method": "generalize_age" },
     "birth_date": { "method": "generalize_date", "params": { "mode": "month" } },
+    "zip_code": { "method": "generalize_zip_code", "params": { "visible_prefix": 3 } },
     "state": { "method": "random_choice", "params": { "choices": ["SP", "RJ", "MG", "BA"] } },
     "last_access": { "method": "date_offset", "params": { "min_days": -2, "max_days": 2 } },
-    "feedback": { "method": "shuffle" }
+    "event_time": { "method": "coarsen_datetime", "params": { "mode": "part_of_day" } },
+    "feedback": { "method": "shuffle" },
+    "score": { "method": "clip_range", "params": { "min": 0, "max": 100 } }
   }
 }
 ```
@@ -107,8 +151,8 @@ Single condition:
 
 ```json
 "cpf": {
-  "method": "replace_with_random_digits",
-  "params": { "digits": 11 },
+  "method": "mask_cpf",
+  "params": { "keep_last": 2 },
   "condition": {
     "column": "status",
     "operator": "equals",
@@ -175,8 +219,8 @@ Config:
     "email": { "method": "mask_email" },
     "age": { "method": "generalize_age" },
     "cpf": {
-      "method": "replace_with_random_digits",
-      "params": { "digits": 8 },
+      "method": "mask_cpf",
+      "params": { "keep_last": 2 },
       "condition": {
         "column": "status",
         "operator": "equals",
@@ -189,10 +233,10 @@ Config:
 
 Output:
 
-| name | email             | age   | cpf      |
-|------|-------------------|-------|----------|
-| A.S. | xxxxx@example.com | 20-29 | 48291034 |
-| B.J. | xxxxx@example.com | 40-49 | null     |
+| name | email             | age   | cpf          |
+|------|-------------------|-------|--------------|
+| A.S. | xxxxx@example.com | 20-29 | *********01  |
+| B.J. | xxxxx@example.com | 40-49 | null         |
 
 ---
 
@@ -200,12 +244,12 @@ Output:
 
 Runnable scripts live under [`examples/`](examples).
 
-- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py), [`examples/masking/mask_credit_card.py`](examples/masking/mask_credit_card.py), [`examples/masking/mask_cpf.py`](examples/masking/mask_cpf.py)
-- Replacement: [`examples/replace/replace_with_value.py`](examples/replace/replace_with_value.py), [`examples/replace/hash_value.py`](examples/replace/hash_value.py), [`examples/replace/redact_regex.py`](examples/replace/redact_regex.py), [`examples/replace/replace_with_hash_bucket.py`](examples/replace/replace_with_hash_bucket.py)
-- Generalization: [`examples/generalize/generalize_age.py`](examples/generalize/generalize_age.py), [`examples/generalize/top_k_bucket.py`](examples/generalize/top_k_bucket.py), [`examples/generalize/generalize_zip_code.py`](examples/generalize/generalize_zip_code.py), [`examples/generalize/coarsen_datetime.py`](examples/generalize/coarsen_datetime.py)
-- Dates: [`examples/random/date_offset.py`](examples/random/date_offset.py)
-- Randomization: [`examples/random/random_choice.py`](examples/random/random_choice.py), [`examples/random/noise_numeric.py`](examples/random/noise_numeric.py)
-- Numeric transforms: [`examples/round/round_number.py`](examples/round/round_number.py), [`examples/round/clip_range.py`](examples/round/clip_range.py)
+- Masking: [`examples/masking/full_mask.py`](examples/masking/full_mask.py), [`examples/masking/mask_email.py`](examples/masking/mask_email.py), [`examples/masking/mask_number.py`](examples/masking/mask_number.py), [`examples/masking/mask_partials.py`](examples/masking/mask_partials.py), [`examples/masking/mask_credit_card.py`](examples/masking/mask_credit_card.py), [`examples/masking/mask_cpf.py`](examples/masking/mask_cpf.py), [`examples/masking/truncate.py`](examples/masking/truncate.py)
+- Replacement: [`examples/replace/replace_with_value.py`](examples/replace/replace_with_value.py), [`examples/replace/replace_exact.py`](examples/replace/replace_exact.py), [`examples/replace/replace_by_contains.py`](examples/replace/replace_by_contains.py), [`examples/replace/replace_with_random_digits.py`](examples/replace/replace_with_random_digits.py), [`examples/replace/hash_value.py`](examples/replace/hash_value.py), [`examples/replace/redact_regex.py`](examples/replace/redact_regex.py), [`examples/replace/replace_with_hash_bucket.py`](examples/replace/replace_with_hash_bucket.py)
+- Generalization: [`examples/generalize/generalize_age.py`](examples/generalize/generalize_age.py), [`examples/generalize/generalize_date.py`](examples/generalize/generalize_date.py), [`examples/generalize/generalize_number_range.py`](examples/generalize/generalize_number_range.py), [`examples/generalize/generalize_zip_code.py`](examples/generalize/generalize_zip_code.py), [`examples/generalize/top_k_bucket.py`](examples/generalize/top_k_bucket.py), [`examples/generalize/coarsen_datetime.py`](examples/generalize/coarsen_datetime.py)
+- Randomization: [`examples/random/random_choice.py`](examples/random/random_choice.py), [`examples/random/noise_numeric.py`](examples/random/noise_numeric.py), [`examples/random/shuffle.py`](examples/random/shuffle.py), [`examples/random/date_offset.py`](examples/random/date_offset.py)
+- Numeric transforms: [`examples/round/round_number.py`](examples/round/round_number.py), [`examples/round/round_date.py`](examples/round/round_date.py), [`examples/round/clip_range.py`](examples/round/clip_range.py)
+- Sequential: [`examples/sequential/sequential_numeric.py`](examples/sequential/sequential_numeric.py), [`examples/sequential/sequential_alpha.py`](examples/sequential/sequential_alpha.py)
 - Utilities: [`examples/utils/coalesce.py`](examples/utils/coalesce.py), [`examples/utils/null_if_matches.py`](examples/utils/null_if_matches.py)
 
 ---
@@ -289,7 +333,7 @@ uv add cloakdata
 ## Development
 
 ```bash
-git clone https://github.com/youruser/cloakdata
+git clone https://github.com/Jeferson-Peter/cloakdata
 cd cloakdata
 uv sync --extra dev
 pre-commit install
@@ -298,11 +342,14 @@ pytest -v
 
 ---
 
-## Roadmap
+## Choosing Methods
 
-- Regex-based redaction
-- Hashing strategies
-- Parallel processing for large datasets
+- Use `hash_value` when you need stable one-way pseudonymization.
+- Use `replace_with_hash_bucket` when you need deterministic grouping and collisions are acceptable.
+- Use `generalize_date` when you want period-style date abstraction such as month, quarter, or year.
+- Use `round_date` when you want canonical rounded dates such as month-start or year-start.
+- Use `coarsen_datetime` when you want timestamp abstraction such as hour buckets, part-of-day labels, weekdays, or business-hours labels.
+- Use `null_if_matches` before anonymization when your source data contains placeholders such as `N/A`, `unknown`, or regex-shaped junk values.
 
 ---
 

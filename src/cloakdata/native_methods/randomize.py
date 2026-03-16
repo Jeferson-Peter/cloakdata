@@ -10,7 +10,7 @@ def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     seed = params.get("seed", 0)
 
     if not choices:
-        raise ValueError("'choices' must be a non-empty list")
+        raise ValueError("random_choice: 'choices' must be a non-empty list")
 
     n = len(choices)
     idx = pl.arange(0, pl.len()).hash(seed=seed).abs() % n
@@ -56,6 +56,6 @@ def shuffle(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     seed = params.get("seed")
 
     if seed is not None and not isinstance(seed, int):
-        raise TypeError("'seed' must be an integer")
+        raise TypeError("shuffle: 'seed' must be an integer")
 
     return pl.col(col).shuffle(seed=seed).alias(col)

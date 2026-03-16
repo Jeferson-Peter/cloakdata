@@ -18,9 +18,9 @@ df = df.with_columns(
 config = {
     "columns": {
         "ssn_fixed_default": {"method": "full_mask"},
-        "ssn_fixed_custom": {"method": "full_mask", "params": {"char": "X", "len": 8}},
+        "ssn_fixed_custom": {"method": "full_mask", "params": {"mask_char": "X", "len": 8}},
         "ssn_literal": {"method": "full_mask", "params": {"mask_literal": "REDACTED"}},
-        "ssn_dynamic": {"method": "full_mask", "params": {"match_length": True, "char": "#"}},
+        "ssn_dynamic": {"method": "full_mask", "params": {"match_length": True, "mask_char": "#"}},
         "ssn_overwrite_nulls": {"method": "full_mask", "params": {"preserve_nulls": False}},
     }
 }

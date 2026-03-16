@@ -21,14 +21,14 @@ df = df.with_columns(
 config = {
     "columns": {
         "num_default": {"method": "mask_number"},
-        "num_custom": {"method": "mask_number", "params": {"keep": 2, "mask": "X"}},
+        "num_custom": {"method": "mask_number", "params": {"keep": 2, "mask_char": "X"}},
         "num_fixed_len": {
             "method": "mask_number",
-            "params": {"keep": 2, "mask": "#", "len": 4},
+            "params": {"keep": 2, "mask_char": "#", "len": 4},
         },
         "num_overwrite_nulls": {
             "method": "mask_number",
-            "params": {"keep": 3, "mask": "*", "preserve_nulls": False},
+            "params": {"keep": 3, "mask_char": "*", "preserve_nulls": False},
         },
     }
 }
