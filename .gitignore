@@ -3,3 +3,5 @@ __pycache__
 .uv-cache
 .pytest_cache
 .ruff_cache
+docs/
+demo/anonymization_sample/sample_anonymized.parquet

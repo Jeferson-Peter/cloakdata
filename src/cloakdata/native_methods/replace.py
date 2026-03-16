@@ -78,7 +78,7 @@ def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.
     seed = params.get("seed", 0)
 
     if not isinstance(digits, int) or digits <= 0:
-        raise ValueError("'digits' must be a positive integer")
+        raise ValueError("replace_with_random_digits: 'digits' must be a positive integer")
 
     base = pl.arange(0, pl.len()).hash(seed=seed).abs()
     digit_exprs = [((base + i).hash(seed=seed + i) % 10).cast(pl.Utf8) for i in range(digits)]
@@ -95,7 +95,7 @@ def hash_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     preserve_nulls = bool(params.get("preserve_nulls", True))
 
     if algorithm not in hashlib.algorithms_available:
-        raise ValueError(f"Unsupported hash algorithm '{algorithm}'")
+        raise ValueError(f"hash_value: unsupported hash algorithm '{algorithm}'")
 
     def compute_hash(value: object | None) -> str | None:
         if value is None:

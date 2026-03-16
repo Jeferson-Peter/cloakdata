@@ -70,7 +70,7 @@ def date_offset(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     span = (max_days - min_days) + 1
     if span <= 0:
-        raise ValueError("Invalid date offset range")
+        raise ValueError("date_offset: invalid date offset range")
 
     orig = pl.col(col)
     base = orig.cast(pl.Utf8).str.strptime(pl.Date, strict=False)

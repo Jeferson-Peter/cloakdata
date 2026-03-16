@@ -9,15 +9,16 @@ def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     Fully masks values with a minimal config surface.
 
     params (optional):
-      - char: str = "*"
+      - mask_char: str = "*"
+      - char: str | None = None         # legacy alias
       - len: int = 5
       - mask_literal: str | None = None   # if present, it wins
-      - match_length: bool = False        # repeats `char` to original length
+      - match_length: bool = False        # repeats `mask_char` to original length
       - preserve_nulls: bool = True
     """
     s = pl.col(col).cast(pl.Utf8)
     preserve_nulls = bool(params.get("preserve_nulls", True))
-    char = str(params.get("char", "*"))
+    mask_char = str(params.get("mask_char", params.get("char", "*")))
     length_fixed = int(params.get("len", 5))
     mask_literal = params.get("mask_literal")
     match_length = bool(params.get("match_length", False))
@@ -25,9 +26,9 @@ def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     if mask_literal is not None:
         core = pl.lit(str(mask_literal))
     elif match_length:
-        core = s.str.replace_all(r".", char, literal=False)
+        core = s.str.replace_all(r".", mask_char, literal=False)
     else:
-        core = pl.lit(char * length_fixed)
+        core = pl.lit(mask_char * length_fixed)
 
     expr = pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
     return expr
@@ -74,13 +75,14 @@ def mask_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     params (optional):
       - keep: int = 3                  # how many leading chars to preserve
-      - mask: str = "*"                # mask character
+      - mask_char: str = "*"           # preferred mask character
+      - mask: str | None = None        # legacy alias
       - len: int | None = None         # fixed number of mask chars (else: fill the rest)
       - preserve_nulls: bool = True    # keep nulls untouched
     """
     s = pl.col(col).cast(pl.Utf8)
     keep = int(params.get("keep", 3))
-    mask_char = str(params.get("mask", "*"))
+    mask_char = str(params.get("mask_char", params.get("mask", "*")))
     mask_len = params.get("len")
     preserve_nulls = bool(params.get("preserve_nulls", True))
 
@@ -111,10 +113,10 @@ def truncate(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     try:
         length = int(length)
     except Exception as err:
-        raise ValueError("'length' must be an integer.") from err
+        raise ValueError("truncate: 'length' must be an integer") from err
 
     if length < 0:
-        raise ValueError("'length' must be >= 0.")
+        raise ValueError("truncate: 'length' must be >= 0")
 
     s = pl.col(col).cast(pl.Utf8)
     truncated = s.str.slice(0, length)
@@ -190,7 +192,7 @@ def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     mask_char = str(params.get("mask_char", params.get("mask", "*")))
 
     if visible_start < 0 or visible_end < 0:
-        raise ValueError("'visible_start' and 'visible_end' must be >= 0.")
+        raise ValueError("mask_partial: 'visible_start' and 'visible_end' must be >= 0")
 
     s = pl.col(col).cast(pl.Utf8)
     total_len = s.str.len_chars()

@@ -7,7 +7,7 @@ from .catalog import native_method
 def coalesce_cols(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     cols = params.get("columns", [])
     if not cols:
-        raise ValueError("'columns' param is required for 'coalesce_cols'")
+        raise ValueError("coalesce_cols: 'columns' param is required")
     return pl.coalesce([pl.col(c) for c in cols]).alias(col)
 
 
