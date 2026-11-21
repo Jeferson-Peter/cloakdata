@@ -444,7 +444,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding standards, how to add a
 See the [engineering assessment](docs/engineering-assessment.md),
 [benchmarks](docs/benchmarks.md), and [portfolio case study](CASE_STUDY.md)
 for the design decisions and measurements.
-See the [unreleased notes](release-notes/UNRELEASED.md) for compatibility changes.
+See the [4.0.0 release notes](release-notes/v4.0.0.md) for compatibility changes.
 
 ## Notice
 

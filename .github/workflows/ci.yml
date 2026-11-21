@@ -31,6 +31,8 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked coverage run -m pytest
       - run: uv run --locked coverage report
+      - name: Test with Polars 2.1
+        run: uv run --locked --with polars==2.1.0 pytest
       - run: uv build
       - name: Smoke test installed wheel and sdist
         shell: bash
