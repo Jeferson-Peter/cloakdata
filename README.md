@@ -35,6 +35,7 @@ A flexible data anonymization library built on [Polars](https://pola.rs/), desig
   - `replace_by_contains`
   - `replace_with_random_digits`
   - `hash_value`
+  - `hmac_value`
   - `replace_with_hash_bucket`
   - `redact_regex`
 - Generalization:
@@ -70,6 +71,13 @@ A flexible data anonymization library built on [Polars](https://pola.rs/), desig
 3. Call `anonymize(df, config)`
 4. Receive a transformed `DataFrame`
 
+The engine validates the configuration and gets a snapshot of the method registry.
+Built-in and custom methods return Polars expressions. Independent columns are
+evaluated against the input, and each chain uses a lazy projection per rule.
+Custom methods keep the `(df, col, params) -> pl.Expr` signature. When a custom
+method runs inside a chain, its input includes the current target column and the
+original values for other available columns.
+
 ---
 
 ## Quickstart
@@ -103,6 +111,9 @@ print(out)
 
 ## Example Config
 
+Apply this configuration to a DataFrame containing all the listed columns.
+Each target refers to an existing column unless it has a conditional rule.
+
 ```json
 {
   "columns": {
@@ -110,7 +121,7 @@ print(out)
     "email": { "method": "mask_email" },
     "email_hash": {
       "method": "hash_value",
-      "params": { "salt": "team-2026" }
+      "params": { "salt": "public-example-salt" }
     },
     "phone": { "method": "mask_number", "params": { "keep": 3 } },
     "cpf": {
@@ -161,15 +172,17 @@ Single condition:
 }
 ```
 
-Multiple rules per column:
+Multiple rules per column run in list order. Each method reads the previous
+result for its target. Conditions use the original values for every column,
+including the target. A false or null predicate keeps the previous result.
 
 ```json
-"city": [
-  { "method": "replace_with_value", "params": { "value": "X" } },
+"email": [
+  { "method": "mask_email" },
   {
-    "method": "mask_partial",
-    "params": { "visible_start": 1, "visible_end": 1 },
-    "condition": { "column": "country", "operator": "equals", "value": "BR" }
+    "method": "truncate",
+    "params": { "length": 5 },
+    "condition": { "column": "share_domain", "operator": "is_false" }
   }
 ]
 ```
@@ -194,10 +207,14 @@ Nested conditions:
 ```
 
 Supported operators:
-`equals`, `not_equals`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `contains`, `not_contains`
+`equals`, `not_equals`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `between`,
+`contains`, `not_contains`, `startswith`, `endswith`, `is_null`, `not_null`,
+`is_true`, and `is_false`. The `contains` operators use regex patterns.
+For compatibility, `is_false` also matches null input flags. This preserves
+policies that redact when a flag is missing.
 
-Supported groups:
-`all`, `any`, `not`
+Supported groups include `all`, `any`, `not`, non-empty lists (implicit AND),
+and `{"conditions": [...], "logical": "and" | "or"}`.
 
 ---
 
@@ -205,10 +222,10 @@ Supported groups:
 
 Input:
 
-| name        | email             | age | status   |
-|-------------|-------------------|-----|----------|
-| Alice Smith | alice@example.com | 25  | active   |
-| Bob Jones   | bob@example.com   | 42  | inactive |
+| name        | email             | age | status   | cpf         |
+|-------------|-------------------|-----|----------|-------------|
+| Alice Smith | alice@example.com | 25  | active   | 00000000001 |
+| Bob Jones   | bob@example.com   | 42  | inactive | null        |
 
 Config:
 
@@ -233,10 +250,10 @@ Config:
 
 Output:
 
-| name | email             | age   | cpf          |
-|------|-------------------|-------|--------------|
-| A.S. | xxxxx@example.com | 20-29 | *********01  |
-| B.J. | xxxxx@example.com | 40-49 | null         |
+| name | email             | age   | status   | cpf           |
+|------|-------------------|-------|----------|---------------|
+| A.S. | xxxxx@example.com | 20-29 | active   | `*********01` |
+| B.J. | xxxxx@example.com | 40-49 | inactive | null          |
 
 ---
 
@@ -268,6 +285,7 @@ Runnable scripts live under [`examples/`](examples).
 | [`initials_only`](examples/initials/initials_only.py) | Converts names to initials |
 | [`replace_with_value`](examples/replace/replace_with_value.py) | Replaces all values with a static value |
 | [`hash_value`](examples/replace/hash_value.py) | Generates deterministic hashes, with optional salt |
+| [`hmac_value`](#keyed-pseudonyms) | Creates deterministic HMAC-SHA256 pseudonyms using secret key bytes |
 | [`redact_regex`](examples/replace/redact_regex.py) | Redacts regex matches inside free text |
 | [`replace_with_hash_bucket`](examples/replace/replace_with_hash_bucket.py) | Replaces values with deterministic hash buckets |
 | [`replace_exact`](examples/replace/replace_exact.py) | Replaces exact values using a mapping |
@@ -293,10 +311,73 @@ Runnable scripts live under [`examples/`](examples).
 
 ---
 
-## Notes
+## Privacy and threat model
 
-- `hash_value` is deterministic and better when you need stable one-way pseudonymization.
-- `replace_with_hash_bucket` is deterministic bucketing, not unique pseudonymization. Different input values can land in the same bucket when the number of unique values is greater than the configured number of buckets.
+- **Masking** hides selected characters or values. Partial masks expose some
+  characters, and length-preserving masks reveal length. CPF and card masks
+  recognize specific formats and may leave unrecognized inputs unchanged.
+- **Hashing** creates a deterministic digest. `hash_value` preserves its
+  legacy digest for non-null values. With `preserve_nulls=False`, null hashes
+  like the empty string. An observer who knows the salt can test guesses
+  for predictable emails, phone numbers, and identifiers.
+- **Keyed pseudonymization** reduces offline guessing when the recipient
+  lacks the secret and cannot query a service that produces tokens for chosen
+  inputs. Identical strings under the same key produce identical tokens, which
+  expose equality and frequency. Other columns can still identify people.
+- **Anonymization** is a property of the released dataset in context. Review
+  auxiliary data, rare combinations, access controls, and residual linkage.
+  Using these methods alone does not establish compliance with
+  [GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng) or
+  [LGPD](https://planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709compilado.htm).
+
+Seeded random choices, numeric noise, and date offsets can depend on row
+position. Hash buckets can collide. Polars does not guarantee
+[`Expr.hash` stability across versions](https://docs.pola.rs/api/python/version/1/reference/expressions/api/polars.Expr.hash.html).
+Sequential labels are local to the input, and shuffle keeps the original set
+of values. These methods offer no cryptographic protection.
+
+### Keyed pseudonyms
+
+`hmac_value` casts inputs to Polars strings, hashes their UTF-8 bytes using
+HMAC-SHA256, and leaves nulls unchanged. Supply at least 32 random bytes from a
+secret store. Use separate keys for datasets that should not be linkable. Keep
+keys, configs containing keys, and source records out of logs and version control.
+
+```python
+import os
+
+from cloakdata import anonymize
+from cloakdata.validate import validate
+
+key = bytes.fromhex(os.environ["CLOAKDATA_HMAC_KEY_HEX"])
+config = {"columns": {"email": {"method": "hmac_value", "params": {"key": key}}}}
+validate(config)
+out = anonymize(df, config)
+```
+
+Generate the key once with a cryptographic generator such as
+`secrets.token_bytes(32)` and store its hex encoding securely. Rotating the key
+changes all tokens. Normalize input explicitly if equivalent identifiers should
+produce the same token.
+
+## Validation and troubleshooting
+
+- `validate(config)` raises `ValueError` for invalid rule structure, conditions,
+  and native parameters that can be checked without the data. This includes
+  malformed regex patterns in conditions and native methods. Use
+  [Polars regex syntax](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.str.contains.html).
+  Validation does not run custom methods or check the input schema.
+- `anonymize(df, config)` also checks target and predicate columns. Unknown
+  methods, malformed conditions, empty rule lists, and missing unconditional
+  targets now fail. A missing conditional target still starts as null.
+- Use `"drop"` or `{"method": "drop"}` as the sole rule for a column. It is safe
+  to drop an absent column. Dropped columns cannot be used by other rules.
+- `anonymize` raises `ValueError` or `TypeError` for invalid settings. For a valid config that fails on the
+  data, catch `cloakdata.TransformationError` and inspect its chained cause
+  privately. Polars exceptions can include input values. Missing columns used
+  inside method expressions still raise Polars `ColumnNotFoundError`.
+- Polars calculates both sides of conditional expressions. A transformation
+  must accept the column data types even where its predicate is false.
 
 ---
 
@@ -335,16 +416,19 @@ uv add cloakdata
 ```bash
 git clone https://github.com/Jeferson-Peter/cloakdata
 cd cloakdata
-uv sync --extra dev
-pre-commit install
-pytest -v
+uv sync --locked --extra dev
+uv run ruff check .
+uv run coverage run -m pytest
+uv run coverage report
+uv build
 ```
 
 ---
 
 ## Choosing Methods
 
-- Use `hash_value` when you need stable one-way pseudonymization.
+- Use `hmac_value` for stable pseudonyms of predictable identifiers when you can protect a key.
+- Use `hash_value` when you need to reproduce existing unkeyed digests.
 - Use `replace_with_hash_bucket` when you need deterministic grouping and collisions are acceptable.
 - Use `generalize_date` when you want period-style date abstraction such as month, quarter, or year.
 - Use `round_date` when you want canonical rounded dates such as month-start or year-start.
@@ -356,6 +440,11 @@ pytest -v
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding standards, how to add a new anonymization method, and the PR checklist.
+
+See the [engineering assessment](docs/engineering-assessment.md),
+[benchmarks](docs/benchmarks.md), and [portfolio case study](CASE_STUDY.md)
+for the design decisions and measurements.
+See the [unreleased notes](release-notes/UNRELEASED.md) for compatibility changes.
 
 ## Notice
 

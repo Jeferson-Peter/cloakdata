@@ -23,7 +23,7 @@ config = {
             "method": "hash_value",
             "params": {
                 "algorithm": "sha256",
-                "salt": "team-2026",
+                "salt": "public-example-salt",
             },
         },
     }

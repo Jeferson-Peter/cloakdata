@@ -3,5 +3,8 @@ __pycache__
 .uv-cache
 .pytest_cache
 .ruff_cache
-docs/
+docs/*
+!docs/engineering-assessment.md
+!docs/benchmarks.md
+.coverage
 demo/anonymization_sample/sample_anonymized.parquet

@@ -13,6 +13,7 @@ DispatchMap = Mapping[str, MethodCallable]
 class Condition(TypedDict, total=False):
     column: str
     col: str
+    op: str
     operator: Literal[
         "equals",
         "==",
@@ -30,14 +31,22 @@ class Condition(TypedDict, total=False):
         "lte",
         "contains",
         "not_contains",
+        "startswith",
+        "endswith",
+        "between",
+        "is_null",
+        "not_null",
+        "is_true",
+        "is_false",
     ]
     value: object
+    val: object
 
 
 class RuleObj(TypedDict, total=False):
     method: str
     params: NotRequired[dict]
-    condition: NotRequired[Condition]
+    condition: NotRequired[Condition | Mapping[str, object] | Sequence[object] | None]
 
 
 Rule = str | RuleObj

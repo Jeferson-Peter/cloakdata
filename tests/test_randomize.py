@@ -227,7 +227,7 @@ def test_noise_numeric_respects_delta_bounds(df_factory, cfg_factory):
     out = anonymize(df, cfg)["col"].to_list()
     original = [10.0, 20.0, 30.0]
 
-    for actual, expected in zip(out, original):
+    for actual, expected in zip(out, original, strict=False):
         delta = actual - expected
         assert -2.0 <= delta <= 3.0
 

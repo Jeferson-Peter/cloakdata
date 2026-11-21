@@ -1,4 +1,4 @@
-from .engine import AnonymizerEngine
+from .engine import AnonymizerEngine, TransformationError
 from .registry import (
     get_all_methods,
     get_registered_methods,
@@ -15,4 +15,5 @@ __all__ = [
     "register_method",
     "unregister_method",
     "AnonymizerEngine",
+    "TransformationError",
 ]

@@ -2,6 +2,7 @@ import polars as pl
 
 from .catalog import native_method
 
+
 @native_method
 def generalize_age(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     params = params or {}
@@ -70,7 +71,7 @@ def generalize_number_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Exp
     return pl.when(is_null).then(None).otherwise(bucket).alias(col)
 
 
-@native_method
+@native_method(requires_frame=True)
 def top_k_bucket(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     params = params or {}
     k = params.get("k", 5)
@@ -113,7 +114,8 @@ def generalize_zip_code(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     s = pl.col(col).cast(pl.Utf8)
     total_len = s.str.len_chars()
     visible = s.str.slice(0, visible_prefix)
-    suffix = s.str.slice(visible_prefix).str.replace_all(r"[A-Za-z0-9]", mask_char)
+    replacement = mask_char.replace("$", "$$")
+    suffix = s.str.slice(visible_prefix).str.replace_all(r"[A-Za-z0-9]", replacement)
     masked = visible + suffix
 
     return (
@@ -127,7 +129,7 @@ def generalize_zip_code(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
 
 @native_method
-def coarsen_datetime(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+def coarsen_datetime(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:  # noqa: PLR0912
     params = params or {}
     mode = params.get("mode", "bucket")
     minutes = params.get("minutes", 60)
@@ -170,11 +172,7 @@ def coarsen_datetime(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         out = parsed.dt.strftime("%A").str.to_lowercase()
     elif mode == "weekend_weekday":
         weekday_num = parsed.dt.weekday()
-        out = (
-            pl.when(weekday_num >= 6)
-            .then(pl.lit("weekend"))
-            .otherwise(pl.lit("weekday"))
-        )
+        out = pl.when(weekday_num >= 6).then(pl.lit("weekend")).otherwise(pl.lit("weekday"))
     elif mode == "business_hours":
         start_hour = params.get("start_hour", 9)
         end_hour = params.get("end_hour", 18)

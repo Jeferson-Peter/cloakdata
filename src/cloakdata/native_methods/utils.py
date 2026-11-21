@@ -1,13 +1,18 @@
 import polars as pl
 
+from ..validators import validate_regex
 from .catalog import native_method
 
 
 @native_method
 def coalesce_cols(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     cols = params.get("columns", [])
-    if not cols:
-        raise ValueError("coalesce_cols: 'columns' param is required")
+    if (
+        not isinstance(cols, list | tuple)
+        or not cols
+        or not all(isinstance(name, str) and name for name in cols)
+    ):
+        raise ValueError("coalesce_cols: 'columns' must contain one or more column names")
     return pl.coalesce([pl.col(c) for c in cols]).alias(col)
 
 
@@ -18,6 +23,8 @@ def null_if_matches(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     pattern = params.get("pattern")
     case_sensitive = bool(params.get("case_sensitive", True))
 
+    if pattern is not None and not isinstance(pattern, str):
+        raise ValueError("null_if_matches: 'pattern' must be a string")
     if not values and not pattern:
         raise ValueError("null_if_matches: provide 'values' and/or 'pattern'")
 
@@ -38,6 +45,7 @@ def null_if_matches(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         source = orig.cast(pl.Utf8)
         if not case_sensitive:
             pattern = f"(?i){pattern}"
+        validate_regex(pattern, "null_if_matches: 'pattern'")
         cond = cond | source.str.contains(pattern, literal=False).fill_null(False)
 
     return pl.when(cond).then(None).otherwise(orig).alias(col)

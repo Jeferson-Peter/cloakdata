@@ -1,80 +1,108 @@
 import polars as pl
-from loguru import logger
 
-from .conditions import apply_conditioned_expr, condition_to_str
+from .conditions import apply_conditioned_expr
+from .native_methods.catalog import NATIVE_FRAME_METHODS, NATIVE_METHODS
 from .registry import build_dispatch_map
+from .types import DispatchMap
+from .validate import ParsedRule, build_native_expr, parse_config
+
+
+class TransformationError(RuntimeError):
+    """A transformation could not be executed on the input."""
+
+
+def _prepare_frame(df: pl.DataFrame, rules_by_column: dict[str, list[ParsedRule]]) -> pl.DataFrame:
+    drops = [col for col, rules in rules_by_column.items() if rules[0].method == "drop"]
+    available = set(df.columns)
+    added = []
+    for col, rules in rules_by_column.items():
+        if col in available or rules[0].method == "drop":
+            continue
+        if not any(rule.predicate is not None for rule in rules):
+            raise ValueError(f"Target column '{col}' is missing from input")
+        added.append(pl.repeat(None, pl.len()).alias(col))
+        available.add(col)
+
+    available.difference_update(drops)
+    for col, rules in rules_by_column.items():
+        for rule in rules:
+            if rule.predicate is None:
+                continue
+            missing = set(rule.predicate.meta.root_names()) - available
+            if missing:
+                raise ValueError(f"Column '{col}': missing condition columns {sorted(missing)}")
+
+    if added:
+        df = df.with_columns(added)
+    return df.drop(drops, strict=False) if drops else df
+
+
+def _rule_expression(
+    df: pl.DataFrame, col: str, rule: ParsedRule, dispatch: DispatchMap, predicate: pl.Expr | None
+) -> pl.Expr:
+    method = dispatch[rule.method]
+    if rule.method in NATIVE_METHODS:
+        expr = build_native_expr(method, df, col, rule)
+    else:
+        try:
+            expr = method(df, col, rule.params)
+        except Exception as err:
+            raise TransformationError(f"Custom method '{rule.method}' failed for '{col}'") from err
+
+    if not isinstance(expr, pl.Expr):
+        raise TransformationError(f"Method '{rule.method}' for '{col}' must return a Polars Expr")
+    return apply_conditioned_expr(pl.col(col), expr, predicate).alias(col)
+
+
+def _run_chain(
+    df: pl.DataFrame, col: str, rules: list[ParsedRule], dispatch: DispatchMap
+) -> pl.Series:
+    # Keep input predicates outside the staged schema so selectors see only input columns.
+    conditions = [
+        rule.predicate.alias(str(index))
+        for index, rule in enumerate(rules)
+        if rule.predicate is not None
+    ]
+    predicates = df.select(conditions).to_dict() if conditions else {}
+    plan = df.lazy()
+    for index, rule in enumerate(rules):
+        method_input = df
+        if index and (rule.method not in NATIVE_METHODS or rule.method in NATIVE_FRAME_METHODS):
+            # Data-dependent methods still receive a real DataFrame with the public columns.
+            method_input = plan.collect()
+            plan = method_input.lazy()
+        value = predicates.get(str(index))
+        predicate = pl.lit(value) if value is not None else None
+        expr = _rule_expression(method_input, col, rule, dispatch, predicate)
+        plan = plan.with_columns(expr)
+    return plan.select(col).collect().get_column(col)
 
 
 class AnonymizerEngine:
-    """
-    Orquestra a aplicação das regras de anonimização em um DataFrame.
-    Mantém comportamento do método `anonymize` original (compat 1:1).
-    """
+    """Apply per-column rules in order while conditions read the original values."""
 
     @classmethod
     def anonymize(cls, df: pl.DataFrame, config: dict) -> pl.DataFrame:
-        logger.info("🔐 Starting anonymization process...")
-        exprs = []
-        dispatch_map = build_dispatch_map()
-
-        dropped_cols = [
-            col
-            for col, rule in config["columns"].items()
-            if isinstance(rule, dict) and rule.get("method") == "drop"
-        ]
-        if dropped_cols:
-            logger.warning(f"⚠️ Dropping columns: {dropped_cols}")
-            df = df.drop(dropped_cols, strict=False)
-
-        for col, rule in config["columns"].items():
-            column_exists = col in df.columns
-            has_condition = (isinstance(rule, dict) and "condition" in rule) or (
-                isinstance(rule, list)
-                and any(isinstance(r, dict) and "condition" in r for r in rule)
-            )
-
-            if not column_exists:
-                if has_condition:
-                    logger.info(
-                        f"➕ Column '{col}' not found — adding as null to apply conditional rule."
-                    )
-                    df = df.with_columns(pl.lit(None).alias(col))
+        dispatch = build_dispatch_map()
+        rules_by_column = parse_config(config, dispatch)
+        df = _prepare_frame(df, rules_by_column)
+        output: list[pl.Expr | pl.Series] = []
+        for col, rules in rules_by_column.items():
+            rule = rules[0]
+            if rule.method == "drop":
+                continue
+            try:
+                if len(rules) == 1:
+                    output.append(_rule_expression(df, col, rule, dispatch, rule.predicate))
                 else:
-                    logger.warning(f"⏭️ Skipping Unknown column: {col}")
-                    continue
-
-            rule_list = [rule] if isinstance(rule, str | dict) else rule
-            current_expr = pl.col(col)
-
-            for r in rule_list:
-                if isinstance(r, str):
-                    method, params, condition = r, {}, None
-                else:
-                    method = r.get("method")
-                    params = r.get("params") or {}
-                    condition = r.get("condition")
-
-                if method not in dispatch_map:
-                    logger.error(f"❌ Unknown method '{method}' for column '{col}'. Skipping.")
-                    continue
-
-                if condition:
-                    logger.debug(
-                        f"🔧 Applying method '{method}' to column '{col}' "
-                        f"with condition '{condition_to_str(condition)}'"
-                    )
-                else:
-                    logger.debug(f"🔧 Applying method '{method}' to column '{col}' (no condition)")
-
-                new_expr = dispatch_map[method](df, col, params)
-                current_expr = (
-                    apply_conditioned_expr(current_expr, new_expr, condition)
-                    if condition
-                    else new_expr
-                )
-
-            exprs.append(current_expr.alias(col))
-
-        result_df = df.with_columns(exprs) if exprs else df
-        logger.success(f"✅ Anonymization complete. {len(exprs)} column(s) processed.")
-        return result_df
+                    output.append(_run_chain(df, col, rules, dispatch))
+            except pl.exceptions.ColumnNotFoundError:
+                raise
+            except pl.exceptions.PolarsError as err:
+                raise TransformationError(f"Could not transform column '{col}': {err}") from err
+        try:
+            return df.with_columns(output) if output else df
+        except pl.exceptions.ColumnNotFoundError:
+            raise
+        except pl.exceptions.PolarsError as err:
+            raise TransformationError(f"Could not apply transformations: {err}") from err

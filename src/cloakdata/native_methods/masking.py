@@ -3,6 +3,12 @@ import polars as pl
 from .catalog import native_method
 
 
+def _mask_characters(value: pl.Expr, mask: str) -> pl.Expr:
+    if len(mask) == 1:
+        return pl.lit("").str.pad_end(value.str.len_chars(), mask)
+    return value.str.replace_all(r"(?s).", mask.replace("$", "$$"))
+
+
 @native_method
 def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     """
@@ -16,7 +22,7 @@ def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
       - match_length: bool = False        # repeats `mask_char` to original length
       - preserve_nulls: bool = True
     """
-    s = pl.col(col).cast(pl.Utf8)
+    s = pl.col(col)
     preserve_nulls = bool(params.get("preserve_nulls", True))
     mask_char = str(params.get("mask_char", params.get("char", "*")))
     length_fixed = int(params.get("len", 5))
@@ -26,7 +32,7 @@ def full_mask(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     if mask_literal is not None:
         core = pl.lit(str(mask_literal))
     elif match_length:
-        core = s.str.replace_all(r".", mask_char, literal=False)
+        core = _mask_characters(s.cast(pl.String), mask_char)
     else:
         core = pl.lit(mask_char * length_fixed)
 
@@ -56,7 +62,7 @@ def mask_email(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     fallback_domain = params.get("fallback_domain", "hidden.com")
     preserve_nulls = bool(params.get("preserve_nulls", True))
 
-    masked = s.str.replace(r"^[^@]+@", mask + "@", literal=False)
+    masked = s.str.replace(r"^[^@]+@", mask.replace("$", "$$") + "@", literal=False)
 
     expr = (
         pl.when(s.is_null())
@@ -92,7 +98,7 @@ def mask_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
         mask_expr = pl.lit(mask_char * int(mask_len))
     else:
         rest = s.str.slice(keep)
-        mask_expr = rest.str.replace_all(r".", mask_char, literal=False)
+        mask_expr = _mask_characters(rest, mask_char)
 
     core = prefix + mask_expr
     return pl.when(s.is_null()).then(pl.lit(None)).otherwise(core) if preserve_nulls else core
@@ -196,10 +202,10 @@ def mask_partial(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     s = pl.col(col).cast(pl.Utf8)
     total_len = s.str.len_chars()
-    middle_len = total_len - (visible_start + visible_end)
+    middle_len = (total_len.cast(pl.Int64) - visible_start - visible_end).clip(lower_bound=0)
 
     prefix = s.str.slice(0, visible_start)
-    middle = s.str.slice(visible_start, middle_len).str.replace_all(r".", mask_char, literal=False)
+    middle = _mask_characters(s.str.slice(visible_start, middle_len), mask_char)
     suffix = pl.lit("") if visible_end == 0 else s.str.slice(-visible_end)
 
     masked = prefix + middle + suffix
@@ -228,7 +234,7 @@ def mask_credit_card(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     digit_count = digits_only.str.len_chars()
 
     if keep_last == 0:
-        masked = s.str.replace_all(r"\d", mask_char)
+        masked = s.str.replace_all(r"\d", mask_char.replace("$", "$$"))
     else:
         preserved_suffix = digits_only.str.slice(-keep_last)
 
@@ -281,7 +287,8 @@ def mask_cpf(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     if keep_last == 0:
         plain_masked = pl.lit(mask_char * 11)
-        formatted_masked = pl.lit(f"{mask_char * 3}.{mask_char * 3}.{mask_char * 3}-{mask_char * 2}")
+        group = mask_char * 3
+        formatted_masked = pl.lit(f"{group}.{group}.{group}-{mask_char * 2}")
     else:
         visible_suffix = digits_only.str.slice(-keep_last)
         masked_digits = pl.lit(mask_char * (11 - keep_last)) + visible_suffix

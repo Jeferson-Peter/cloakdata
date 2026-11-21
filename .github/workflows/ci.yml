@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_call:
+    inputs:
+      upload_dist:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.12", "3.13"]
+    container:
+      image: ghcr.io/astral-sh/uv:python${{ matrix.python }}-bookworm
+    env:
+      UV_PYTHON: "${{ matrix.python }}"
+      UV_PYTHON_DOWNLOADS: never
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - run: uv sync --locked --extra dev
+      - run: uv run --locked ruff check .
+      - run: uv run --locked coverage run -m pytest
+      - run: uv run --locked coverage report
+      - run: uv build
+      - name: Smoke test installed wheel and sdist
+        shell: bash
+        run: |
+          uv export --locked --no-dev --no-emit-project --no-hashes --output-file "$RUNNER_TEMP/cloakdata-runtime.txt"
+          for artifact in dist/*.whl dist/*.tar.gz; do
+            uv run --no-project --isolated --with "$artifact" \
+              --with-requirements "$RUNNER_TEMP/cloakdata-runtime.txt" python tests/smoke_installed.py
+          done
+      - name: Upload validated release artifacts
+        if: inputs.upload_dist && matrix.python == '3.12'
+        uses: actions/upload-artifact@v6
+        with:
+          name: dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
