@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cloakdata"
-version = "3.2.1"
+version = "4.0.0"
 description = "Fast data anonymization with Polars"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -35,17 +35,21 @@ Changelog = "https://github.com/Jeferson-Peter/cloakdata/releases"
 [tool.hatch.build.targets.wheel]
 packages = ["src/cloakdata"]
 
-[tool.hatch.build]
-include = ["src/cloakdata/py.typed"]
+[tool.hatch.build.targets.sdist]
+include = ["/src/cloakdata", "/pyproject.toml", "/README.md", "/LICENSE", "/NOTICE"]
 
 # ---------- qualidade ----------
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "PL", "PLC"]
 exclude = ["tests/fixtures"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004"]
+"src/cloakdata/native_methods/generalize.py" = ["PLR2004"] # Calendar/time boundaries.
 
 [tool.pytest.ini_options]
 addopts = "-q"

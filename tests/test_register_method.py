@@ -35,6 +35,14 @@ def test_register_allows_underscore_params():
     _cleanup_custom("ok_under")
 
 
+def test_register_rejects_keyword_only_parameters():
+    def method(df, col, *, params):
+        return pl.col(col)
+
+    with pytest.raises(TypeError, match="positional"):
+        register_method(method)
+
+
 def test_register_blocks_override_of_native():
     def full_mask(df, col, params):
         return pl.lit("NOPE")

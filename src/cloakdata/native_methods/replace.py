@@ -1,8 +1,13 @@
 import hashlib
+import hmac
 
 import polars as pl
 
+from ..validators import validate_regex
 from .catalog import native_method
+
+_MIN_HMAC_KEY_BYTES = 32
+
 
 @native_method
 def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
@@ -21,6 +26,8 @@ def replace_with_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 @native_method
 def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     mapping = params.get("mapping")
+    if mapping is not None and not isinstance(mapping, dict):
+        raise ValueError("replace_by_contains: 'mapping' must be a dictionary")
     if not mapping:
         substr = params.get("substr")
         if not substr:
@@ -33,22 +40,29 @@ def replace_by_contains(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     use_regex = bool(params.get("use_regex", False))
 
     s = pl.col(col).cast(pl.Utf8)
-    acc = s
-
-    for sub, rep in mapping.items():
-        cond = acc.str.contains(sub, literal=not use_regex).fill_null(False)
-
-        if not case_sensitive and not use_regex:
-            cond = acc.str.to_lowercase().str.contains(sub.lower(), literal=True).fill_null(False)
-
-        acc = pl.when(cond).then(pl.lit(rep)).otherwise(acc)
-
-    return acc.alias(col)
+    haystack = s.str.to_lowercase() if not case_sensitive and not use_regex else s
+    result = s
+    for sub, rep in reversed(mapping.items()):
+        if not isinstance(sub, str):
+            raise ValueError("replace_by_contains: mapping keys must be strings")
+        pattern = sub
+        if not case_sensitive:
+            pattern = f"(?i){sub}" if use_regex else sub.lower()
+        if use_regex:
+            validate_regex(pattern, "replace_by_contains: mapping key or 'substr'")
+        result = (
+            pl.when(haystack.str.contains(pattern, literal=not use_regex))
+            .then(pl.lit(rep))
+            .otherwise(result)
+        )
+    return result.alias(col)
 
 
 @native_method
 def replace_exact(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     mapping: dict = params.get("mapping", {})
+    if not isinstance(mapping, dict):
+        raise ValueError("replace_exact: 'mapping' must be a dictionary")
     old = list(mapping.keys())
     new = list(mapping.values())
     return pl.col(col).replace(old, new).alias(col)
@@ -60,8 +74,9 @@ def redact_regex(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     pattern = params.get("pattern")
     replacement = str(params.get("replacement", "[REDACTED]"))
 
-    if not pattern:
-        raise ValueError("redact_regex: 'pattern' parameter is required")
+    if not isinstance(pattern, str) or not pattern:
+        raise ValueError("redact_regex: 'pattern' parameter must be a non-empty string")
+    validate_regex(pattern, "redact_regex: 'pattern'")
 
     return (
         pl.when(pl.col(col).is_null())
@@ -89,6 +104,7 @@ def replace_with_random_digits(_df: pl.DataFrame, col: str, params: dict) -> pl.
 
 @native_method
 def hash_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    """Hash UTF-8 text prefixed with a salt, preserving nulls by default."""
     params = params or {}
     algorithm = str(params.get("algorithm", "sha256")).lower()
     salt = str(params.get("salt", ""))
@@ -96,17 +112,38 @@ def hash_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     if algorithm not in hashlib.algorithms_available:
         raise ValueError(f"hash_value: unsupported hash algorithm '{algorithm}'")
+    salted = hashlib.new(algorithm, salt.encode())
+    if salted.digest_size == 0:
+        raise ValueError("hash_value: select a fixed-length hash algorithm")
 
-    def compute_hash(value: object | None) -> str | None:
+    def compute_hash(value: object | None) -> str:
         if value is None:
-            if preserve_nulls:
-                return None
-            value = ""
+            return salted.hexdigest()
+        digest = salted.copy()
+        digest.update(f"{value}".encode())
+        return digest.hexdigest()
 
-        payload = f"{salt}{value}".encode("utf-8")
-        return hashlib.new(algorithm, payload).hexdigest()
+    return (
+        pl.col(col)
+        .map_elements(compute_hash, return_dtype=pl.String, skip_nulls=preserve_nulls)
+        .alias(col)
+    )
 
-    return pl.col(col).map_elements(compute_hash, return_dtype=pl.Utf8).alias(col)
+
+@native_method
+def hmac_value(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
+    """Create stable HMAC-SHA256 pseudonyms using a caller-supplied secret."""
+    key = params.get("key")
+    if not isinstance(key, bytes) or len(key) < _MIN_HMAC_KEY_BYTES:
+        raise ValueError("hmac_value: 'key' must be at least 32 secret bytes")
+    keyed = hmac.new(key, digestmod="sha256")
+
+    def compute_hmac(value: str) -> str:
+        digest = keyed.copy()
+        digest.update(value.encode())
+        return digest.hexdigest()
+
+    return pl.col(col).cast(pl.String).map_elements(compute_hmac, return_dtype=pl.String).alias(col)
 
 
 @native_method

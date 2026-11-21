@@ -9,8 +9,8 @@ def random_choice(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     choices = params.get("choices", ["X", "Y"])
     seed = params.get("seed", 0)
 
-    if not choices:
-        raise ValueError("random_choice: 'choices' must be a non-empty list")
+    if not isinstance(choices, list | tuple) or not choices:
+        raise ValueError("random_choice: 'choices' must be a non-empty list or tuple")
 
     n = len(choices)
     idx = pl.arange(0, pl.len()).hash(seed=seed).abs() % n
@@ -31,7 +31,7 @@ def noise_numeric(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     if min_delta is None or max_delta is None:
         raise ValueError("noise_numeric: 'min_delta' and 'max_delta' parameters are required")
 
-    if not isinstance(min_delta, (int, float)) or not isinstance(max_delta, (int, float)):
+    if not isinstance(min_delta, int | float) or not isinstance(max_delta, int | float):
         raise TypeError("noise_numeric: 'min_delta' and 'max_delta' must be numeric")
 
     if min_delta > max_delta:

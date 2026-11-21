@@ -2,7 +2,8 @@ import polars as pl
 
 from .catalog import native_method
 
-@native_method
+
+@native_method(requires_frame=True)
 def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     params = params or {}
     start = int(params.get("start", 1))
@@ -22,7 +23,7 @@ def sequential_numeric(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     return expr.alias(col)
 
 
-@native_method
+@native_method(requires_frame=True)
 def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     def alpha_to_num(s: str) -> int:
         s = (s or "A").strip().upper()
@@ -43,6 +44,8 @@ def sequential_alpha(df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
 
     params = params or {}
     start_label = params.get("start", "A")
+    if start_label is not None and not isinstance(start_label, str):
+        raise ValueError("sequential_alpha: 'start' must be a string")
     start_idx = alpha_to_num(start_label)
     prefix = params.get("prefix", "val")
 

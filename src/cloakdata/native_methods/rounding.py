@@ -2,6 +2,7 @@ import polars as pl
 
 from .catalog import native_method
 
+
 @native_method
 def round_number(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     digits = params.get("digits", 0)
@@ -17,10 +18,10 @@ def clip_range(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     if min_value is None and max_value is None:
         raise ValueError("clip_range: provide 'min' and/or 'max'")
 
-    if min_value is not None and not isinstance(min_value, (int, float)):
+    if min_value is not None and not isinstance(min_value, int | float):
         raise TypeError("clip_range: 'min' must be numeric")
 
-    if max_value is not None and not isinstance(max_value, (int, float)):
+    if max_value is not None and not isinstance(max_value, int | float):
         raise TypeError("clip_range: 'max' must be numeric")
 
     if min_value is not None and max_value is not None and min_value > max_value:
@@ -46,7 +47,7 @@ def round_date(_df: pl.DataFrame, col: str, params: dict) -> pl.Expr:
     elif mode == "year":
         rounded = parsed.dt.truncate("1y").dt.strftime("%Y-%m-%d")
     else:
-        return s.alias(col)
+        raise ValueError("round_date: 'mode' must be 'month' or 'year'")
 
     return (
         pl.when(s.is_null())
